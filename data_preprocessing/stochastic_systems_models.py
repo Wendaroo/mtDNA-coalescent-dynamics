@@ -154,28 +154,13 @@ def hetero_summary_statistic_e24(dna, mt, window_size=7, mode = "training"):
 
 #if n < beta0, this birth rate breaks, so there is a max(n, beta0 + 0.0001) to ensure this doesn't happen
 @jit(nopython=True)
-def logarithmic_birth(e, n, mu, c, l, beta0 = 172, beta1 = 1.38, ou_addition=0.0):
-    return e*np.maximum(0, ou_addition + mu + c*(np.log(beta1*l/beta0 + 1)/np.log(np.maximum(n,beta0+0.0001)/beta0)-1))
+def logarithmic_birth(n_y,n_r,  mu,c,l, f_y, f_r, beta0=172, beta1=1.38, n = 0):
+    return n_y*np.maximum(0, mu + c*(np.log(beta1*l/beta0 + 1)/np.log(np.maximum(n,beta0+0.0001)/beta0)-1))
 
 @jit(nopython=True)
 def constant_death(e, n, mu, c, l, beta0 = 172, beta1 = 1.38):
     return mu*e
 
-@jit(nopython=True)
-def differential_birth(e, n, mu, c, l, beta0 = 172, beta1 = 1.38, ou_addition=0.0):
-    return e*np.maximum(0, ou_addition + mu + c*(beta0+beta1*l-n))
-
-@jit(nopython=True)
-def ratiometric_birth(e, n, mu, c, l, beta0 = 172, beta1 = 1.38, ou_addition=0.0):
-    return e*np.maximum(0, ou_addition + mu + c*((beta0+beta1*l)/n-1))
-
-@jit(nopython=True)
-def inhibition_birth(e, n, mu, c, l, beta0 = 172, beta1 = 1.38, ou_addition=0.0):
-    l0 = np.log(c/mu)/beta1
-    alpha = l0*beta0
-    k = l/l0
-
-    return e*np.maximum(0, ou_addition + c*(1+alpha/l)*(1-1/k)**(n-1))
 
 @jit(nopython=True)
 def OU_birth_func(time = 24, dt=0.01, mean = 0.012, theta = 0.1, sd = 0.01, initial_val = 0.012):

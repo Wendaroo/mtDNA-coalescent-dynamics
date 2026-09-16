@@ -186,25 +186,31 @@ def sample_three_population_chase_prior(num_samples,pulse_samples = three_popula
 
 
 @jit(parallel=True)
-def run_parallel(simulated_summaries, simulated_pulse_params, simulated_chase_params, stochastic_simulator, summary_statistic, inference_portion, mode = "training"):
+def run_parallel_pulse(simulated_summaries, simulated_pulse_params, stochastic_simulator, summary_statistic, mode = "training"):
 
-    if inference_portion == "pulse":
-        for i in prange(len(simulated_summaries)):
-            z = stochastic_simulator(simulated_pulse_params[i], mode = mode)
-            print("Simulation " + str(i) + " Finished")
-            s = summary_statistic(z)
-            simulated_summaries[i] = s
+    for i in prange(len(simulated_summaries)):
+        z = stochastic_simulator(simulated_pulse_params[i], mode = mode)
+        print("Simulation " + str(i) + " Finished")
+        s = summary_statistic(z)
+        simulated_summaries[i] = s
     
-    elif inference_portion == "chase":
-        for i in prange(len(simulated_summaries)):
-            z = stochastic_simulator(simulated_pulse_params[i], simulated_chase_params[i], mode = mode)
-            print("Simulation " + str(i) + " Finished")
-            s = summary_statistic(z)
-            simulated_summaries[i] = s        
 
     print("Simulations finished, returning outputs")
 
-    return  simulated_summaries
+    return  simulated_summaries, simulated_pulse_params, simulated_pulse_params
+
+@jit(parallel=True)
+def run_parallel_chase(simulated_summaries, simulated_pulse_params, simulated_chase_params, stochastic_simulator, summary_statistic, mode = "training"):
+
+    for i in prange(len(simulated_summaries)):
+        z = stochastic_simulator(simulated_pulse_params[i], simulated_chase_params[i], mode = mode)
+        print("Simulation " + str(i) + " Finished")
+        s = summary_statistic(z)
+        simulated_summaries[i] = s        
+
+    print("Simulations finished, returning outputs")
+
+    return  simulated_summaries, simulated_pulse_params, simulated_chase_params
 
 def run(number_sims, inference_portion = "pulse", hetero = False, edu_hetero = False):
     extra_dimensions = 0
@@ -212,6 +218,8 @@ def run(number_sims, inference_portion = "pulse", hetero = False, edu_hetero = F
         extra_dimensions = 1
     if edu_hetero:
         extra_dimensions = 5
+
+    print(inference_portion)
     
     if inference_portion == "pulse":
         summary_statistic_shape = 6 + extra_dimensions
@@ -220,6 +228,11 @@ def run(number_sims, inference_portion = "pulse", hetero = False, edu_hetero = F
         sample_prior = sample_three_population_pulse_prior
         simulated_pulse_paramss = sample_prior(number_sims)
         simulated_chase_paramss = simulated_pulse_paramss
+        simulated_summaries = np.zeros((number_sims, summary_statistic_shape)).astype(np.float64)
+        simulated_pulse_params = np.transpose(simulated_pulse_paramss).astype(np.float64)
+
+        return run_parallel_pulse(simulated_summaries, simulated_pulse_params, stochastic_simulator, summary_statistic)
+
 
     elif inference_portion == "chase":
         summary_statistic = chase_summary_statistics
@@ -227,12 +240,11 @@ def run(number_sims, inference_portion = "pulse", hetero = False, edu_hetero = F
         stochastic_simulator = extended_logarithmic_three_population_chase
         sample_prior = sample_three_population_chase_prior
         simulated_pulse_paramss, simulated_chase_paramss = sample_prior(number_sims)
+        simulated_summaries = np.zeros((number_sims, summary_statistic_shape)).astype(np.float64)
+        simulated_pulse_params = np.transpose(simulated_pulse_paramss).astype(np.float64)
+        simulated_chase_params = np.transpose(simulated_chase_paramss).astype(np.float64)
 
-    simulated_summaries = np.zeros((number_sims, summary_statistic_shape)).astype(np.float64)
-    simulated_pulse_params = np.transpose(simulated_pulse_paramss).astype(np.float64)
-    simulated_chase_params = np.transpose(simulated_chase_paramss).astype(np.float64)
-
-    return run_parallel(simulated_summaries, simulated_pulse_params, simulated_chase_params, stochastic_simulator, summary_statistic, inference_portion)
+        return run_parallel_chase(simulated_summaries, simulated_pulse_params, simulated_chase_params, stochastic_simulator, summary_statistic)
 
 def run_validation(number_sims = 500, inference_portion = "pulse", mode = "validation"):
 
@@ -283,18 +295,19 @@ def ABC_distances(simulated_summaries, inference_portion = "pulse", hetero = Fal
 
     return mahalanobis_distance(simulated_summaries, true_data, precision_matrix)
 
-def ABC_reject(simulated_summaries, simulated_params, proportion_accepted, inference_portion="pulse", hetero=False, edu_hetero=False):
+def ABC_reject(simulated_summaries, simulated_pulse_params, simulated_chase_params, proportion_accepted, inference_portion="pulse", hetero=False, edu_hetero=False):
     """
     Pick the smallest h such that the proportion of simulations accepted is 'proportion_accepted'
     """
-    number_accepted = round(proportion_accepted*len(simulated_params))
+    number_accepted = round(proportion_accepted*len(simulated_pulse_params))
     bandwidths = np.array(ABC_distances(simulated_summaries,  inference_portion = inference_portion, hetero = hetero, edu_hetero = edu_hetero))
     idx = np.argpartition(bandwidths, number_accepted)
 
-    accepted_params = np.array(simulated_params)[idx[:number_accepted]]
+    accepted_pulse_params = np.array(simulated_pulse_params)[idx[:number_accepted]]
+    accepted_chase_params = np.array(simulated_chase_params)[idx[:number_accepted]]
     bandwidth = bandwidths[idx[number_accepted]]
 
-    return accepted_params, bandwidth
+    return accepted_pulse_params, accepted_chase_params, bandwidth
 
 def chase_posterior_predictive_simulator(pulse_params, chase_params, mode, num_samples):
 

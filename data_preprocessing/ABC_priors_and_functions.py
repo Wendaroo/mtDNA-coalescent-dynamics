@@ -254,16 +254,17 @@ def run_validation(number_sims = 500, inference_portion = "pulse", mode = "valid
         chase_params = three_population_pulse_accepted_parameters[:number_sims]
         stochastic_simulator = extended_logarithmic_three_population_pulse
         summary_statistic = pulse_summary_statistics
+        simulated_summaries = np.zeros((number_sims, summary_statistic_shape)).astype(np.float64)
+        return run_parallel_pulse(simulated_summaries, pulse_params, chase_params, stochastic_simulator, summary_statistic, inference_portion, mode)
+    
     elif inference_portion == "chase":
         summary_statistic_shape = 15
         pulse_params = three_population_chase_pulse_accepted_parameters[:number_sims]
         chase_params = three_population_chase_chase_accepted_parameters[:number_sims]
         stochastic_simulator = extended_logarithmic_three_population_chase
         summary_statistic = chase_summary_statistics
-
-    simulated_summaries = np.zeros((number_sims, summary_statistic_shape)).astype(np.float64)
-
-    return run_parallel(simulated_summaries, pulse_params, chase_params, stochastic_simulator, summary_statistic, inference_portion, mode)
+        simulated_summaries = np.zeros((number_sims, summary_statistic_shape)).astype(np.float64)
+        return run_parallel_chase(simulated_summaries, pulse_params, chase_params, stochastic_simulator, summary_statistic, inference_portion, mode)
 
 def mahalanobis_distance(x, y, inverse_cov):
     v = (x-y.transpose()).transpose()
@@ -309,7 +310,8 @@ def ABC_reject(simulated_summaries, simulated_pulse_params, simulated_chase_para
 
     return accepted_pulse_params, accepted_chase_params, bandwidth
 
-def chase_posterior_predictive_simulator(pulse_params, chase_params, mode, num_samples):
+@jit(parallel=True)
+def chase_posterior_predictive_simulator(pulse_params, chase_params, mode):
 
     dim = 12
     if mode == "full":
@@ -319,8 +321,6 @@ def chase_posterior_predictive_simulator(pulse_params, chase_params, mode, num_s
     elif mode == "validation":
         num_cells = 84
 
-    pulse_params = pulse_params[:num_samples]
-    chase_params = chase_params[:num_samples]
     trajectories = np.zeros((len(pulse_params), num_cells, 385, dim))
     variance_statistics = np.zeros(len(pulse_params))
     peak1_0day = np.zeros(len(pulse_params))
@@ -350,7 +350,7 @@ def chase_posterior_predictive_simulator(pulse_params, chase_params, mode, num_s
 
 
 @jit(parallel=True)
-def pulse_posterior_predictive_simulator(params, mode, num_samples = 100):
+def pulse_posterior_predictive_simulator(params, mode):
     dim = 9
 
     if mode == "full":
@@ -360,7 +360,6 @@ def pulse_posterior_predictive_simulator(params, mode, num_samples = 100):
     elif mode == "validation":
         num_cells = 135
     
-    params = params[:num_samples]
     trajectories = np.zeros((len(params), num_cells, 97, dim))
     peak1 = np.zeros(len(params))
     variance_statistics = np.zeros(len(params))
@@ -390,7 +389,7 @@ def posterior_predictive(num_samples = 500, inference_portion = "pulse", mode = 
         params = params[:num_samples]
 
         #Running the simulations in parallel
-        (trajectories, peak1, variance_statistics)  = pulse_posterior_predictive_simulator(extended_logarithmic_three_population_pulse, params, mode)
+        (trajectories, peak1, variance_statistics)  = pulse_posterior_predictive_simulator(params, mode)
 
         #post processing the trajectories into edu and nucleoid trajectories
         nucleoid_trajectories = np.zeros((len(params), 97))
@@ -415,7 +414,7 @@ def posterior_predictive(num_samples = 500, inference_portion = "pulse", mode = 
         chase_params = chase_params[:num_samples]
         
         #Running the simulations in parallel
-        (trajectories, peak1_0day, peak1_4day, variance_statistics) = chase_posterior_predictive_simulator(extended_logarithmic_three_population_chase, pulse_params, chase_params, mode)
+        (trajectories, peak1_0day, peak1_4day, variance_statistics) = chase_posterior_predictive_simulator(pulse_params, chase_params, mode)
 
         #post processing the trajectories into edu and nucleoid trajectories
         nucleoid_trajectories = np.zeros((len(params), 385))

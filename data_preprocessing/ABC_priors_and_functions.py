@@ -251,11 +251,10 @@ def run_validation(number_sims = 500, inference_portion = "pulse", mode = "valid
     if inference_portion == "pulse":
         summary_statistic_shape = 6
         pulse_params = three_population_pulse_accepted_parameters[:number_sims]
-        chase_params = three_population_pulse_accepted_parameters[:number_sims]
         stochastic_simulator = extended_logarithmic_three_population_pulse
         summary_statistic = pulse_summary_statistics
         simulated_summaries = np.zeros((number_sims, summary_statistic_shape)).astype(np.float64)
-        return run_parallel_pulse(simulated_summaries, pulse_params, chase_params, stochastic_simulator, summary_statistic, inference_portion, mode)
+        return run_parallel_pulse(simulated_summaries, pulse_params, stochastic_simulator, summary_statistic, mode)
     
     elif inference_portion == "chase":
         summary_statistic_shape = 15
@@ -264,7 +263,7 @@ def run_validation(number_sims = 500, inference_portion = "pulse", mode = "valid
         stochastic_simulator = extended_logarithmic_three_population_chase
         summary_statistic = chase_summary_statistics
         simulated_summaries = np.zeros((number_sims, summary_statistic_shape)).astype(np.float64)
-        return run_parallel_chase(simulated_summaries, pulse_params, chase_params, stochastic_simulator, summary_statistic, inference_portion, mode)
+        return run_parallel_chase(simulated_summaries, pulse_params, chase_params, stochastic_simulator, summary_statistic, mode)
 
 def mahalanobis_distance(x, y, inverse_cov):
     v = (x-y.transpose()).transpose()
@@ -417,9 +416,9 @@ def posterior_predictive(num_samples = 500, inference_portion = "pulse", mode = 
         (trajectories, peak1_0day, peak1_4day, variance_statistics) = chase_posterior_predictive_simulator(pulse_params, chase_params, mode)
 
         #post processing the trajectories into edu and nucleoid trajectories
-        nucleoid_trajectories = np.zeros((len(params), 385))
-        edu_trajectories = np.zeros((len(params), 385))
-        edu_proportions = np.zeros((len(params), 385))
+        nucleoid_trajectories = np.zeros((len(pulse_params), 385))
+        edu_trajectories = np.zeros((len(pulse_params), 385))
+        edu_proportions = np.zeros((len(pulse_params), 385))
         for j in range(len(trajectories)):
             
             trajectory = trajectories[j]
@@ -432,3 +431,54 @@ def posterior_predictive(num_samples = 500, inference_portion = "pulse", mode = 
             edu_proportions[j] = np.mean(np.divide(edu_trajectory,nucleoid_trajectory), axis = 0)
 
         return (nucleoid_trajectories, edu_trajectories, edu_proportions, peak1_0day, peak1_4day, variance_statistics)
+
+
+# @jit(parallel=True)
+# def run_pulse_parallel(simulated_summaries, simulated_params, stochastic_simulator, summary_statistic, mode = "training"):
+#     for i in prange(len(simulated_summaries)):
+#         z = stochastic_simulator(simulated_params[i], mode = mode)
+#         print("Simulation " + str(i) + " Finished")
+#         s = summary_statistic(z)
+#         simulated_summaries[i] = s
+
+#     print("Simulations finished, returning outputs")
+
+#     return  simulated_summaries
+
+# @jit(parallel=True)
+# def run_chase_parallel(simulated_summaries, simulated_pulse_params, simulated_chase_params, stochastic_simulator, summary_statistic, mode = "training"):
+#     for i in prange(len(simulated_summaries)):
+#         z = stochastic_simulator(simulated_pulse_params[i], simulated_chase_params[i], mode = mode)
+#         print("Simulation " + str(i) + " Finished")
+#         s = summary_statistic(z)
+#         simulated_summaries[i] = s
+
+#     print("Simulations finished, returning outputs")
+
+#     return simulated_summaries
+
+# def run_validation(number_sims = 500, inference_portion = "pulse", mode = "validation"):
+
+#     if inference_portion == "pulse":
+#         summary_statistic_shape = 6
+#         params = np.load("accepted_extended_three_population_pulse_params.npy")
+#         stochastic_simulator = extended_logarithmic_three_population_pulse
+#         summary_statistic = pulse_summary_statistics
+
+#         simulated_summaries = np.zeros((number_sims, summary_statistic_shape)).astype(np.float64)
+
+#         return run_pulse_parallel(simulated_summaries, params[:number_sims], stochastic_simulator, summary_statistic, mode)
+
+#     elif inference_portion == "chase":
+#         pulse_params = np.load("accepted_extended_three_population_chase_pulse_params.npy")
+#         chase_params = np.load("accepted_extended_three_population_chase_chase_params.npy")
+#         summary_statistic_shape = 15
+#         stochastic_simulator = extended_logarithmic_three_population_chase
+#         summary_statistic = chase_summary_statistics
+
+#         simulated_summaries = np.zeros((number_sims, summary_statistic_shape)).astype(np.float64)
+
+#         return run_chase_parallel(simulated_summaries, pulse_params[:number_sims], chase_params[:number_sims], stochastic_simulator, summary_statistic, mode)
+
+
+    

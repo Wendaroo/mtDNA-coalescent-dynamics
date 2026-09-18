@@ -380,6 +380,55 @@ def extended_three_population_posteriors(all_params, accepted_params, all_chase_
             _ = ax[8,3].set_xticks([-4,-2, -1,0], ["$-\infty$",-2, -1,0])
             _ = ax[-3,0].set_yticks([-8,-6,-4,-2, 0], ["$-\infty$",-6,-4,-2, 0])
             _ = ax[8,-3].set_xticks([-8, -6, -4 ,-2, 0], ["$-\infty$",-6, -4, -2, 0])
+
+def mu_b_posterior(params):
+    beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params.transpose()
+    mu_b = np.zeros(len(beta0))
+    mu_b[mu_d_o != 0] = ((mu_d_r+p*mu_r)*(mu_d_y*mu_d_o + mu_d_y*mu_rej+mu_d_o*mu_a)/((mu_d_o+mu_rej)*(mu_r-mu_d_r)))[mu_d_o != 0]
+    mu_b[mu_d_o == 0] = ((mu_d_r+p*mu_r)*mu_d_y/(mu_r-mu_d_r))[mu_d_o == 0]
+
+    fig, ax = plt.subplots(2,5, figsize = (15,5))
+    ax[0,0].scatter(params.transpose()[2], np.log10(mu_b), c = "orange")
+    ax[0,1].scatter(extended_log10(params.transpose()[3]), np.log10(mu_b), c = "orange")
+    ax[0,2].scatter(extended_log10(params.transpose()[4]), np.log10(mu_b), c = "orange")
+    ax[0,3].scatter(extended_log10(params.transpose()[5]), np.log10(mu_b), c = "orange")
+    ax[0,4].scatter(extended_log10(params.transpose()[6]), np.log10(mu_b), c = "orange")
+    ax[1,0].scatter(1/(params.transpose()[7]), np.log10(mu_b), c = "orange")
+    ax[1,1].scatter(extended_log10_2(params.transpose()[8]), np.log10(mu_b), c = "orange")
+    ax[1,2].scatter(extended_log10(params.transpose()[9]), np.log10(mu_b), c = "orange")
+
+    ax[1,4].spines['top'].set_visible(False)
+    ax[1,4].spines['right'].set_visible(False)
+    ax[1,4].spines['bottom'].set_visible(False)
+    ax[1,4].spines['left'].set_visible(False)
+    ax[1,4].set_xticks([],[])
+    ax[1,4].set_yticks([],[])
+    ax[1,3].spines['top'].set_visible(False)
+    ax[1,3].spines['right'].set_visible(False)
+    ax[1,3].spines['bottom'].set_visible(False)
+    ax[1,3].spines['left'].set_visible(False)
+    ax[1,3].set_xticks([],[])
+    ax[1,3].set_yticks([],[])
+
+    ax[0,0].set_ylabel("$\\log_{10}(\\mu_b)$")
+    ax[1,0].set_ylabel("$\\log_{10}(\\mu_b)$")
+
+    ax[0,0].set_xlabel("$p$")
+    ax[0,1].set_xlabel("$\\log_{10}(\\mu_{d,r})$")
+    ax[0,2].set_xlabel("$\\log_{10}(\\mu_{d,a})$")
+    ax[0,3].set_xlabel("$\\log_{10}(\\mu_{d,i})$")
+    ax[0,4].set_xlabel("$\\log_{10}(\\mu_a)$")
+    ax[1,0].set_xlabel("$1/\\mu_r$")
+    ax[1,1].set_xlabel("$\\log_{10}(\\mu_a')$")
+    ax[1,2].set_xlabel("$\\log_{10}(c)$")
+
+    _ = ax[0,1].set_xticks([-4,-2, -1], ["$-\\infty$",-2, -1])
+    _ = ax[0,2].set_xticks([-4,-2, -1], ["$-\\infty$",-2, -1])
+    _ = ax[0,3].set_xticks([-4,-2, -1], ["$-\\infty$",-2, -1])
+    _ = ax[1,1].set_xticks([-8,-6,-4,-2, 0], ["$-\\infty$",-6,-4,-2, 0])
+
+    plt.tight_layout()
+
 def death_mode_posterior(all_chase_pulse_params, accepted_chase_pulse_params):
 
     chase_indices_1 = (((all_chase_pulse_params[:,3] > 0).astype(int) + (all_chase_pulse_params[:,4] > 0).astype(int) + (all_chase_pulse_params[:,5] > 0).astype(int)) == 3).astype(bool)
@@ -404,8 +453,7 @@ def death_mode_posterior(all_chase_pulse_params, accepted_chase_pulse_params):
     plt.title("Degradation regime posterior")
 
 
-def population_proportions(pulse_params):
-    params = pulse_params
+def population_proportions(params):
     beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params.transpose()
     mu_b = np.zeros(len(beta0))
     mu_b[mu_d_o != 0] = ((mu_d_r+p*mu_r)*(mu_d_y*mu_d_o + mu_d_y*mu_rej+mu_d_o*mu_a)/((mu_d_o+mu_rej)*(mu_r-mu_d_r)))[mu_d_o != 0]
@@ -440,7 +488,165 @@ def population_proportions(pulse_params):
     plt.legend()
     plt.tight_layout()
 
-    
+
+def parameter_coalescent_correlations(params):
+    beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params.transpose()
+    mu_b = np.zeros(len(beta0))
+    mu_b[mu_d_o != 0] = ((mu_d_r+p*mu_r)*(mu_d_y*mu_d_o + mu_d_y*mu_rej+mu_d_o*mu_a)/((mu_d_o+mu_rej)*(mu_r-mu_d_r)))[mu_d_o != 0]
+    mu_b[mu_d_o == 0] = ((mu_d_r+p*mu_r)*mu_d_y/(mu_r-mu_d_r))[mu_d_o == 0]
+
+    f_y = 1/(1 + mu_b/(mu_d_r + p*mu_r) + mu_a/(mu_d_o + mu_rej))
+    f_r = (mu_b/(mu_d_r + p*mu_r))*1/(1 + mu_b/(mu_d_r + p*mu_r) + mu_a/(mu_d_o + mu_rej))
+    f_o = 1-f_r-f_y
+    pi_y = 1/(1 + (1+p)*mu_b*mu_r/(mu_d_r+p*mu_r)**2 + mu_a*mu_rej/(mu_d_o + mu_rej)**2)
+    m = mu_rej/(mu_d_o+mu_rej)
+    mu_coal =  2 * (pi_y/f_y)**2 * f_r * (mu_r + mu_d_r*p)/(mu_r*p + mu_d_r) * mu_r
+
+    fig, ax = plt.subplots(1,5, figsize = (22/1.3,4/1.3))
+    ax[0].scatter(m, np.log10(mu_coal))
+    ax[1].scatter(f_y, np.log10(mu_coal), c = m)
+    ax[2].scatter(np.log10(f_r*mu_r),np.log10(mu_coal), c = m)
+    ax[3].scatter((p*mu_d_r+mu_r)/(mu_d_r+p*mu_r),np.log10(mu_coal), c = m)
+    sc1 = ax[4].scatter(((1+p)*mu_r)/(mu_d_r+p*mu_r),np.log10(mu_coal), c = m)
+
+
+    # 3. Create the colorbar by passing the mappable object and target axis
+    # If you want it next to the 3rd plot:
+    fig.colorbar(sc1, ax=ax[4], label = "$m_i$")
+
+    ax[0].set_ylabel("$N\\mu_{coal}$")
+    ax[0].set_xlabel("$m_i$")
+    ax[1].set_xlabel("$f_a$")
+    ax[2].set_xlabel("$\\mu_{turn}$ per-capita")
+    ax[3].set_xlabel("$\\mathcal{F}_p$")
+    ax[4].set_xlabel("$m_r$")
+
+    for i in range(5):
+        ax[i].set_yticks([],[])
+
+    # Optional: Prevents labels and colorbars from overlapping
+    #plt.tight_layout() 
+    plt.show()
+
+    fig, ax = plt.subplots(2,5, figsize = (15,6))
+    ax[0,0].scatter(params.transpose()[2], np.log10(mu_coal), c = m)
+    ax[0,1].scatter(extended_log10(params.transpose()[3]), np.log10(mu_coal), c = m)
+    ax[0,2].scatter(extended_log10(params.transpose()[4]), np.log10(mu_coal), c = m)
+    ax[0,3].scatter(extended_log10(params.transpose()[5]), np.log10(mu_coal), c = m)
+    ax[0,4].scatter(extended_log10(params.transpose()[6]), np.log10(mu_coal), c = m)
+    ax[1,0].scatter(1/(params.transpose()[7]), np.log10(mu_coal), c = m)
+    ax[1,1].scatter(extended_log10_2(params.transpose()[8]), np.log10(mu_coal), c = m)
+    ax[1,2].scatter(extended_log10(params.transpose()[9]), np.log10(mu_coal), c = m)
+    sc = ax[1,3].scatter(extended_log10(mu_b), np.log10(mu_coal), c = m)
+
+    ax[0,0].set_xlabel("$p$")
+    ax[0,1].set_xlabel("$\\log_{10}(\\mu_{d,r})$")
+    ax[0,2].set_xlabel("$\\log_{10}(\\mu_{d,a})$")
+    ax[0,3].set_xlabel("$\\log_{10}(\\mu_{d,i})$")
+    ax[0,4].set_xlabel("$\\log_{10}(\\mu_a)$")
+    ax[1,0].set_xlabel("$1/\\mu_r$")
+    ax[1,1].set_xlabel("$\\log_{10}(\\mu_a')$")
+    ax[1,2].set_xlabel("$\\log_{10}(c)$")
+    ax[1,3].set_xlabel("$\\log_{10}(\\mu_b)$")
+
+    # 3. Create the colorbar by passing the mappable object and target axis
+    # If you want it next to the 3rd plot:
+    fig.colorbar(sc, ax=ax[1,4], label = "$m_i$")
+
+    ax[0,0].set_ylabel("$N\\mu_{coal}$")
+    ax[1,0].set_ylabel("$N\\mu_{coal}$")
+
+    _ = ax[0,1].set_xticks([-4,-2, -1], ["$-\\infty$",-2, -1])
+    _ = ax[0,2].set_xticks([-4,-2, -1], ["$-\\infty$",-2, -1])
+    _ = ax[0,3].set_xticks([-4,-2, -1], ["$-\\infty$",-2, -1])
+    _ = ax[1,1].set_xticks([-8,-6,-4,-2, 0], ["$-\\infty$",-6,-4,-2, 0])
+
+    ax[1,4].spines['top'].set_visible(False)
+    ax[1,4].spines['right'].set_visible(False)
+    ax[1,4].spines['bottom'].set_visible(False)
+    ax[1,4].spines['left'].set_visible(False)
+    ax[1,4].set_xticks([],[])
+    ax[1,4].set_yticks([],[])
+
+    plt.tight_layout()
+
+    fig, ax = plt.subplots(2,5, figsize = (15,6))
+    ax[0,0].scatter(params.transpose()[2], f_y)
+    ax[0,1].scatter(extended_log10(params.transpose()[3]), f_y)
+    ax[0,2].scatter(extended_log10(params.transpose()[4]), f_y)
+    ax[0,3].scatter(extended_log10(params.transpose()[5]), f_y)
+    ax[0,4].scatter(extended_log10(params.transpose()[6]), f_y)
+    ax[1,0].scatter(1/(params.transpose()[7]), f_y)
+    ax[1,1].scatter(extended_log10_2(params.transpose()[8]), f_y)
+    ax[1,2].scatter(extended_log10(params.transpose()[9]), f_y)
+    ax[1,3].scatter(extended_log10(mu_b), f_y)
+
+    ax[0,0].set_ylabel("$f_a$")
+    ax[1,0].set_ylabel("$f_a$")
+
+    _ = ax[0,1].set_xticks([-4,-2, -1], ["$-\\infty$",-2, -1])
+    _ = ax[0,2].set_xticks([-4,-2, -1], ["$-\\infty$",-2, -1])
+    _ = ax[0,3].set_xticks([-4,-2, -1], ["$-\\infty$",-2, -1])
+    _ = ax[1,1].set_xticks([-8,-6,-4,-2, 0], ["$-\\infty$",-6,-4,-2, 0])
+
+    ax[1,4].spines['top'].set_visible(False)
+    ax[1,4].spines['right'].set_visible(False)
+    ax[1,4].spines['bottom'].set_visible(False)
+    ax[1,4].spines['left'].set_visible(False)
+    ax[1,4].set_xticks([],[])
+    ax[1,4].set_yticks([],[])
+
+    ax[0,0].set_xlabel("$p$")
+    ax[0,1].set_xlabel("$\\log_{10}(\\mu_{d,r})$")
+    ax[0,2].set_xlabel("$\\log_{10}(\\mu_{d,a})$")
+    ax[0,3].set_xlabel("$\\log_{10}(\\mu_{d,i})$")
+    ax[0,4].set_xlabel("$\\log_{10}(\\mu_a)$")
+    ax[1,0].set_xlabel("$1/\\mu_r$")
+    ax[1,1].set_xlabel("$\\log_{10}(\\mu_a')$")
+    ax[1,2].set_xlabel("$\\log_{10}(c)$")
+    ax[1,3].set_xlabel("$\\log_{10}(\\mu_b)$")
+
+    plt.tight_layout()
+
+    fig, ax = plt.subplots(2,5, figsize = (15,6))
+    ax[0,0].scatter(params.transpose()[2], m)
+    ax[0,1].scatter(extended_log10(params.transpose()[3]), m)
+    ax[0,2].scatter(extended_log10(params.transpose()[4]), m)
+    ax[0,3].scatter(extended_log10(params.transpose()[5]), m)
+    ax[0,4].scatter(extended_log10(params.transpose()[6]), m)
+    ax[1,0].scatter(1/(params.transpose()[7]), m)
+    ax[1,1].scatter(extended_log10_2(params.transpose()[8]), m)
+    ax[1,2].scatter(extended_log10(params.transpose()[9]), m)
+    ax[1,3].scatter(extended_log10(mu_b), m)
+
+    ax[0,0].set_ylabel("$m_i$")
+    ax[1,0].set_ylabel("$m_i$")
+
+    _ = ax[0,1].set_xticks([-4,-2, -1], ["$-\\infty$",-2, -1])
+    _ = ax[0,2].set_xticks([-4,-2, -1], ["$-\\infty$",-2, -1])
+    _ = ax[0,3].set_xticks([-4,-2, -1], ["$-\\infty$",-2, -1])
+    _ = ax[1,1].set_xticks([-8,-6,-4,-2, 0], ["$-\\infty$",-6,-4,-2, 0])
+
+    ax[1,4].spines['top'].set_visible(False)
+    ax[1,4].spines['right'].set_visible(False)
+    ax[1,4].spines['bottom'].set_visible(False)
+    ax[1,4].spines['left'].set_visible(False)
+    ax[1,4].set_xticks([],[])
+    ax[1,4].set_yticks([],[])
+
+    ax[0,0].set_xlabel("$p$")
+    ax[0,1].set_xlabel("$\\log_{10}(\\mu_{d,r})$")
+    ax[0,2].set_xlabel("$\\log_{10}(\\mu_{d,a})$")
+    ax[0,3].set_xlabel("$\\log_{10}(\\mu_{d,i})$")
+    ax[0,4].set_xlabel("$\\log_{10}(\\mu_a)$")
+    ax[1,0].set_xlabel("$1/\\mu_r$")
+    ax[1,1].set_xlabel("$\\log_{10}(\\mu_a')$")
+    ax[1,2].set_xlabel("$\\log_{10}(c)$")
+    ax[1,3].set_xlabel("$\\log_{10}(\\mu_b)$")
+
+    plt.tight_layout()
+
+
 def single_posterior_predictive_pulse(nucleoid_trajectories, edu_trajectories, peak1, variance_statistics, mode = "full"):
 
     fig, ax = plt.subplots(1,3, figsize = (18,4))
@@ -629,4 +835,23 @@ def single_posterior_predictive_chase(nucleoid_trajectories, edu_trajectories, e
     ax[1,2].set_xticks([],[])
     ax[1,2].set_yticks([],[])
 
+    plt.tight_layout()
+
+
+
+def ABC_validation_distances(pulse_train_distances, pulse_val_distances, chase_train_distances, chase_val_distances, number_sims = 500):
+    fig, ax = plt.subplots(1,2, figsize = (8,10))
+    ax[0].scatter(np.random.uniform(-0.1,0.1,number_sims), pulse_train_distances)
+    ax[0].scatter(np.random.uniform(0.9,1.1,number_sims), pulse_val_distances)
+    ax[0].set_xlim(-0.5,1.5)
+    ax[0].set_xticks([0,1],["Training", "Validation"], fontsize = 21)
+    ax[0].set_ylabel("ABC distance")
+    ax[0].set_title("Pulse")
+
+    ax[1].scatter(np.random.uniform(-0.1,0.1,number_sims), chase_train_distances)
+    ax[1].scatter(np.random.uniform(0.9,1.1,number_sims), chase_val_distances)
+    ax[1].set_xlim(-0.5,1.5)
+    ax[1].set_xticks([0,1],["Training", "Validation"], fontsize = 21)
+    ax[1].set_ylabel("ABC distance")
+    ax[1].set_title("Pulse-chase")
     plt.tight_layout()

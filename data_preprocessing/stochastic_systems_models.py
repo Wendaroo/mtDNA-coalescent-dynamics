@@ -7,6 +7,7 @@ from .data_preprocessing import (training_mito_lengths, training_time_indicator,
                                  all_assays_edu_number_1hr, all_assays_edu_number_3hr, all_assays_edu_number_7hr, all_assays_edu_number_24hr,
                                  validation_edu_number_1hr, validation_edu_number_3hr, validation_edu_number_7hr, validation_edu_number_24hr,
                                  training_edu_number_1hr, training_edu_number_3hr, training_edu_number_7hr, training_edu_number_24hr)
+import ete3
 
 #############################################################################################################################
 #                                                                                                                           #
@@ -160,6 +161,11 @@ def logarithmic_birth(n_y,n_r,  mu,c,l, f_y, f_r, beta0=172, beta1=1.38, n = 0):
 @jit(nopython=True)
 def constant_death(e, n, mu, c, l, beta0 = 172, beta1 = 1.38):
     return mu*e
+
+# @jit(nopython = True)
+# def logarithmic_birth(e, n, mu, c, l, beta0 = 172, beta1 = 1.38, ou_addition=0.0):
+#     #print(beta1*l/beta0 + 1)
+#     return e*np.maximum(0, ou_addition + mu + c*(np.log(beta1*l/beta0 + 1)/np.log(np.maximum(n,beta0+0.0001)/beta0)-1))
 
 
 @jit(nopython=True)
@@ -1650,3 +1656,810 @@ def chase_summary_statistics(data):
             np.mean(np.divide(tagged_num_2dy, np.maximum(nucleoid_num_2dy,1))), 
             np.mean(np.divide(tagged_num_4dy, np.maximum(nucleoid_num_4dy,1))), 
             initial_average_peak1_proportion_chase, final_average_peak1_proportion_chase, variance_statistic]
+
+#############################################################################################################################
+#                                                                                                                           #
+#                                                          COALESCENT TREE                                                  #
+#                                                             FUNCTIONS                                                     #
+#                                                                                                                           #
+#############################################################################################################################
+
+@jit(nopython = True)
+def extended_three_population_forward_coalescent(params, verbose = False, l = 500, N= 1000, birth_rate = logarithmic_birth, death_rate = constant_death):
+
+    beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params
+    #Defining the birth rate to maintain equilibrium
+    if mu_d_o != 0:
+        mu_b = (mu_d_r+p*mu_r)*(mu_d_y*mu_d_o + mu_d_y*mu_rej+mu_d_o*mu_a)/((mu_d_o+mu_rej)*(mu_r-mu_d_r))
+
+    else:
+        mu_b = (mu_d_r+p*mu_r)*mu_d_y/(mu_r-mu_d_r)
+
+    initialisation_denom = mu_b/(mu_d_r + p*mu_r) + 1 + mu_a/(mu_d_o + mu_rej)
+    
+    f_r = mu_b/((mu_d_r+ p*mu_r)*initialisation_denom)
+    f_y = 1/initialisation_denom
+
+
+    if N !=0:
+        n_init = N
+        l = (N-beta0)/beta1
+
+    else:
+        n_init = int(beta0 + beta1*l)
+    
+    step_matrix = np.array([[-1,0,1,0,-1,0,0,0],
+                           [2,1,-1,-1,0,-1,0,1],
+                           [0,0,0,1,0,0,-1,-1]]).astype(np.float64)
+    
+    #which population does the event act on
+    event_to_population = np.array([0,0,1,1,0,1,2,2])
+    
+    #We only transpose this matrix so that we can easily access the columns later
+    step_matrix = step_matrix.transpose()
+
+    initialisation_denom = mu_b/(mu_d_r + p*mu_r) + 1 + mu_a/(mu_d_o + mu_rej)
+    initial_replicating = n_init * mu_b/((mu_d_r+ p*mu_r)*initialisation_denom)
+    initial_young = n_init/initialisation_denom
+    initial_old = n_init * mu_a/((mu_d_o + mu_rej)*initialisation_denom)
+    n_init = initial_replicating + initial_young + initial_old
+
+    nucleoid_state = np.array([round(initial_replicating), round(initial_young), round(initial_old)]).astype(np.int64)
+
+    current_time =  0
+
+    #Looping until the end of this iteration (usually 1 hour)
+    event_times = np.zeros(2000000)
+    event_indexes = np.zeros(2000000)
+    molecule_indexes = np.zeros(2000000)
+
+    for counter in range(2000000):
+        current_replicating = nucleoid_state[0]
+        current_young = nucleoid_state[1]
+        current_old = nucleoid_state[2]
+
+        n = int(np.sum(nucleoid_state))
+        if n == 0:
+            break
+        
+        ##################----------------Generating the time that the next event takes place---------------------######################
+
+        max_propensity = birth_rate(current_young, current_replicating, mu_b, c, l, f_y, f_r, beta0, beta1, n)  + death_rate(current_old, n, mu_d_o, c, l, beta0, beta1) + \
+            death_rate(current_young, n, mu_d_y, c, l, beta0, beta1) + death_rate(current_replicating, n, mu_d_r, c, l, beta0, beta1) + \
+                current_replicating*mu_r + mu_a*current_young + mu_rej*current_old
+        next_event_time = np.random.exponential(1/max_propensity)
+        
+        #Updating the time
+        current_time += next_event_time
+
+        ##################-------------------------Generating what kind of event this is---------------------------#####################
+
+        p_birth = birth_rate(current_young, current_replicating, mu_b, c, l, f_y, f_r, beta0, beta1, n) /max_propensity
+        p_rep_death = death_rate(current_replicating,n,mu_d_r,c,l,beta0, beta1)/max_propensity
+        p_young_death = death_rate(current_young,n,mu_d_y,c,l,beta0, beta1)/max_propensity
+        p_old_death = death_rate(current_old,n,mu_d_o,c,l,beta0, beta1)/max_propensity
+        p_double_truebirth = p*current_replicating*mu_r/max_propensity
+        p_single_truebirth = (1-p)*current_replicating*mu_r/max_propensity
+        p_ageing = mu_a*current_young/max_propensity
+        p_rej = mu_rej*current_old/max_propensity
+        # if counter % 100 == 0:
+        #     print(nucleoid_state)
+        #     print(n)
+        #     print(p_birth)
+
+        probability_vector = np.array([p_double_truebirth, p_single_truebirth, p_birth, p_ageing, p_rep_death, p_young_death, p_old_death, p_rej])
+        r2 = np.random.uniform(0,1)
+        event_index = np.searchsorted(np.cumsum(probability_vector), r2)
+
+        #Picking a population which this event acts on
+        molecule_index = int(np.random.uniform(0,1)*nucleoid_state[event_to_population[event_index]])
+
+        #Updating the nucleoid state based on which event occured
+        nucleoid_state += step_matrix[event_index].astype(np.int64).flatten()
+
+        event_times[counter] = current_time
+        event_indexes[counter] = event_index
+        molecule_indexes[counter] = molecule_index
+
+    return (event_times, event_indexes.astype(np.int32),  molecule_indexes.astype(np.int32), nucleoid_state)
+
+#Inputs the information of the forward simlation, and backpropagates to extract only those events which affected the nucleoids which 
+#survived till the end. These are the events which are necessary to build the coalescent tree
+def extract_coalescent_info(event_times, event_indexes, molecule_indexes, final_nucleoid_state):#winning mutant index
+    #coalescent_times = [0]
+    coalescent_times = []
+    coalescent_event_indexes = []
+    coalescent_molecule_indexes = []
+
+    #Tracks the number of lineages left in each subpopulation
+    rep_coalescent = [int(final_nucleoid_state[0])]
+    young_coalescent = [int(final_nucleoid_state[1])]
+    old_coalescent = [int(final_nucleoid_state[2])]
+
+    #ones encode positions of molecules we are tracking. zeros encoding molecules we are not tracking
+    rep_fullsample = np.ones(int(final_nucleoid_state[0]))
+    young_fullsample = np.ones(int(final_nucleoid_state[1]))
+    old_fullsample = np.ones(int(final_nucleoid_state[2]))
+
+    for i in range(len(event_times)):
+        #print(i)
+        #stop when we've reached the common ancestor
+        if np.sum(rep_fullsample) + np.sum(young_fullsample) + np.sum(old_fullsample) == 1:
+            #print(i)
+            break
+        j = -i-1
+        if event_indexes[j] == 0:
+
+            #If the replication event produces one or two of the molecules we are tracking, update the coalescent tree
+            indicator = (young_fullsample[-1] == 1) or (young_fullsample[-2] == 1)
+            indicator2 = (young_fullsample[-1] == 1) and (young_fullsample[-2] == 1)
+            if indicator:
+                coalescent_event_indexes.append(event_indexes[j])
+
+                if indicator2:
+                    young_coalescent.append(young_coalescent[-1] - 2)
+                else:
+                    young_coalescent.append(young_coalescent[-1] - 1)
+                rep_coalescent.append(rep_coalescent[-1] + 1)
+                old_coalescent.append(old_coalescent[-1])
+
+                coalescent_times.append(event_times[-1] - event_times[j])
+            
+            #Update the state vector:
+
+            #pop out the molecule indexes
+            young_fullsample = np.delete(young_fullsample, [-1, -2])
+
+            #insert in the replicating population a 0 or 1 depending if the molecule is one we were tracking or not
+            rep_fullsample = np.insert(rep_fullsample, molecule_indexes[j], indicator)
+
+            if indicator:
+                coalescent_molecule_indexes.append(int(np.sum(rep_fullsample[:molecule_indexes[j]])))
+
+        elif event_indexes[j] == 1:
+            #If the replication event produces a young molecule we are tracking, update the coalescent tree
+            indicator = (young_fullsample[-1] == 1)
+            if indicator:
+                coalescent_event_indexes.append(event_indexes[j])
+
+                if rep_fullsample[molecule_indexes[j]] == 1:
+                    rep_coalescent.append(rep_coalescent[-1])
+                else:
+                    rep_coalescent.append(rep_coalescent[-1] + 1)
+                young_coalescent.append(young_coalescent[-1] - 1)
+                old_coalescent.append(old_coalescent[-1])
+
+                coalescent_times.append(event_times[-1] - event_times[j])
+
+            #Update the state vector:
+
+            #pop out the molecule indexes
+            young_fullsample = np.delete(young_fullsample, -1)
+
+            #change the replicating entry based on whether we are now tracking the molecule or not
+            rep_fullsample[molecule_indexes[j]] = max(indicator, rep_fullsample[molecule_indexes[j]])
+
+            if indicator:
+                coalescent_molecule_indexes.append(int(np.sum(rep_fullsample[:molecule_indexes[j]])))
+
+        elif event_indexes[j] == 2:
+            #If the birth event results in a replicating molecule we are tracking, update the coalescent tree
+            indicator = rep_fullsample[-1] == 1
+            if indicator:
+                coalescent_event_indexes.append(event_indexes[j])
+
+
+                rep_coalescent.append(rep_coalescent[-1] - 1)
+                young_coalescent.append(young_coalescent[-1] + 1)
+                old_coalescent.append(old_coalescent[-1])
+
+                coalescent_times.append(event_times[-1] - event_times[j])
+            
+            #Update the state vector:
+
+            #pop out the molecule indexes
+            rep_fullsample = np.delete(rep_fullsample, -1)
+
+            #change the young entry based on whether we are now tracking the molecule or not
+            young_fullsample = np.insert(young_fullsample, molecule_indexes[j], indicator)
+
+            if indicator:
+                coalescent_molecule_indexes.append(int(np.sum(young_fullsample[:molecule_indexes[j]])))
+
+        elif event_indexes[j] == 3:
+            #If the ageing event results in an old molecule we are tracking, update the coalescent tree
+            indicator = old_fullsample[-1] == 1
+            if indicator:
+                coalescent_event_indexes.append(event_indexes[j])
+
+                rep_coalescent.append(rep_coalescent[-1])
+                young_coalescent.append(young_coalescent[-1] + 1)
+                old_coalescent.append(old_coalescent[-1] - 1)
+
+                coalescent_times.append(event_times[-1] - event_times[j])
+            
+            #Update the state vector:
+
+            #pop out the molecule indexes
+            old_fullsample = np.delete(old_fullsample, -1)
+
+            #change the young entry based on whether we are now tracking the molecule or not
+            young_fullsample = np.insert(young_fullsample, molecule_indexes[j], indicator)
+
+            if indicator:
+                coalescent_molecule_indexes.append(int(np.sum(young_fullsample[:molecule_indexes[j]])))
+
+        elif event_indexes[j] == 4:
+            #A rep death event will always produce (backwards in time) a molecule we are not tracking
+            
+            #Update the state vector:
+            rep_fullsample = np.insert(rep_fullsample, molecule_indexes[j], 0)
+
+        elif event_indexes[j] == 5:
+            #A young death event will always produce (backwards in time) a molecule we are not tracking
+            
+            #Update the state vector:
+            young_fullsample = np.insert(young_fullsample, molecule_indexes[j], 0)
+
+        elif event_indexes[j] == 6:
+            #An old death event will always produce (backwards in time) a molecule we are not tracking
+            
+            #Update the state vector:
+            old_fullsample = np.insert(old_fullsample, molecule_indexes[j], 0)
+
+        elif event_indexes[j] == 7:
+            #If the rejuvenation event results in an old molecule we are tracking, update the coalescent tree
+            indicator = young_fullsample[-1] == 1
+            if indicator:
+                coalescent_event_indexes.append(event_indexes[j])
+
+                rep_coalescent.append(rep_coalescent[-1])
+                young_coalescent.append(young_coalescent[-1] - 1)
+                old_coalescent.append(old_coalescent[-1] + 1)
+
+                coalescent_times.append(event_times[-1] - event_times[j])
+            
+            #Update the state vector:
+
+            #pop out the molecule indexes
+            young_fullsample = np.delete(young_fullsample, -1)
+
+            #change the old entry based on whether we are now tracking the molecule or not
+            old_fullsample = np.insert(old_fullsample, molecule_indexes[j], indicator)
+
+            if indicator:
+                coalescent_molecule_indexes.append(int(np.sum(old_fullsample[:molecule_indexes[j]])))
+
+    return rep_coalescent, young_coalescent, old_coalescent, coalescent_times, coalescent_event_indexes, coalescent_molecule_indexes
+
+#Helper functions for build tree object
+def add_parents_event0(young_coalescent, rep_tree, young_tree, old_tree, i, subsample_molecule_indexes):
+
+    #produces two molecules we are tracking (coalescence)
+    if young_coalescent[i] - young_coalescent[i+1] == 2:
+
+        rep_tree[i+1][subsample_molecule_indexes[i]].add_child(young_tree[i][-1])
+        rep_tree[i+1][subsample_molecule_indexes[i]].add_child(young_tree[i][-2])
+
+        #adds parents to the rest of the dna
+        j0=0
+        for j in range(len(rep_tree[i])):                    
+            if j != subsample_molecule_indexes[i]:
+                rep_tree[i+1][j0].add_child(rep_tree[i][j])
+                
+            elif j == subsample_molecule_indexes[i]:
+                j0+=1
+                rep_tree[i+1][j0].add_child(rep_tree[i][j])
+
+            j0+=1
+
+        #young tree
+        for j in range(len(young_tree[i])-2):
+            young_tree[i+1][j].add_child(young_tree[i][j])
+        
+        #old tree
+        for j in range(len(old_tree[i])):
+            old_tree[i+1][j].add_child(old_tree[i][j])
+
+    #produces one molecule we are tracking
+    else:
+        rep_tree[i+1][subsample_molecule_indexes[i]].add_child(young_tree[i][-1])
+
+        #adds parents to the rest of the dna
+
+        #replicating tree
+        j0 = 0
+        if len(rep_tree[i]) != len(rep_tree[i+1]):
+            for j in range(len(rep_tree[i])):                    
+                if j != subsample_molecule_indexes[i]:
+                    rep_tree[i+1][j0].add_child(rep_tree[i][j])
+                    
+                elif j == subsample_molecule_indexes[i]:
+                    j0+=1
+                    rep_tree[i+1][j0].add_child(rep_tree[i][j])
+
+                j0+=1
+
+        else:
+            for j in range(len(rep_tree[i])):                    
+                    rep_tree[i+1][j].add_child(rep_tree[i][j])
+
+
+        #young tree
+        for j in range(len(young_tree[i])-1):
+            young_tree[i+1][j].add_child(young_tree[i][j])
+        
+        #old tree
+        for j in range(len(old_tree[i])):
+            old_tree[i+1][j].add_child(old_tree[i][j])
+
+def add_parents_event1(rep_tree, young_tree, old_tree, i, subsample_molecule_indexes):
+    rep_tree[i+1][subsample_molecule_indexes[i]].add_child(young_tree[i][-1])
+
+    #replicating tree
+    j0 = 0
+    if len(rep_tree[i]) != len(rep_tree[i+1]):
+        for j in range(len(rep_tree[i])):                    
+            if j != subsample_molecule_indexes[i]:
+                rep_tree[i+1][j0].add_child(rep_tree[i][j])
+                
+            elif j == subsample_molecule_indexes[i]:
+                j0+=1
+                rep_tree[i+1][j0].add_child(rep_tree[i][j])
+
+            j0+=1
+
+    else:
+        for j in range(len(rep_tree[i])):                    
+            rep_tree[i+1][j].add_child(rep_tree[i][j])
+
+    #young tree
+    for j in range(len(young_tree[i])-1):
+        young_tree[i+1][j].add_child(young_tree[i][j])
+    
+    #old tree
+    for j in range(len(old_tree[i])):
+        old_tree[i+1][j].add_child(old_tree[i][j])
+
+def add_parents_event2(rep_tree, young_tree, old_tree, i, subsample_molecule_indexes):
+    young_tree[i+1][subsample_molecule_indexes[i]].add_child(rep_tree[i][-1])
+
+    for j in range(len(rep_tree[i]) - 1):                    
+        rep_tree[i+1][j].add_child(rep_tree[i][j])
+
+    j0=0
+    for j in range(len(young_tree[i])):                    
+        if j != subsample_molecule_indexes[i]:
+            young_tree[i+1][j0].add_child(young_tree[i][j])
+            
+        elif j == subsample_molecule_indexes[i]:
+            j0+=1
+            young_tree[i+1][j0].add_child(young_tree[i][j])
+
+        j0+=1
+    
+    #old tree
+    for j in range(len(old_tree[i])):
+        old_tree[i+1][j].add_child(old_tree[i][j])
+
+def add_parents_event3(rep_tree, young_tree, old_tree, i, subsample_molecule_indexes):
+    young_tree[i+1][subsample_molecule_indexes[i]].add_child(old_tree[i][-1])
+
+    for j in range(len(rep_tree[i])):                    
+        rep_tree[i+1][j].add_child(rep_tree[i][j])
+
+    j0=0
+    for j in range(len(young_tree[i])):                    
+        if j != subsample_molecule_indexes[i]:
+            young_tree[i+1][j0].add_child(young_tree[i][j])
+            
+        elif j == subsample_molecule_indexes[i]:
+            j0+=1
+            young_tree[i+1][j0].add_child(young_tree[i][j])
+
+        j0+=1
+    
+    #old tree
+    for j in range(len(old_tree[i]) - 1):
+        old_tree[i+1][j].add_child(old_tree[i][j])
+
+def add_parents_event7(rep_tree, young_tree, old_tree, i, subsample_molecule_indexes):
+    old_tree[i+1][subsample_molecule_indexes[i]].add_child(young_tree[i][-1])
+
+    for j in range(len(rep_tree[i])):                    
+        rep_tree[i+1][j].add_child(rep_tree[i][j])
+
+    j0=0
+    for j in range(len(old_tree[i])):                    
+        if j != subsample_molecule_indexes[i]:
+            old_tree[i+1][j0].add_child(old_tree[i][j])
+            
+        elif j == subsample_molecule_indexes[i]:
+            j0+=1
+            old_tree[i+1][j0].add_child(old_tree[i][j])
+
+        j0+=1
+    
+    #young tree
+    for j in range(len(young_tree[i]) - 1):
+        young_tree[i+1][j].add_child(young_tree[i][j])
+
+#Inputs the information of extract_coalescent info and builds a coalescent tree object 
+def build_tree_object(rep_coalescent, young_coalescent, old_coalescent, events, subsample_molecule_indexes):
+    
+    rep_tree = []
+    young_tree = []
+    old_tree = []
+
+    trees = [rep_tree, young_tree, old_tree]
+
+    #Build the tree nodes with no edges
+    for i in range(len(rep_coalescent)):
+        #print(i)
+        rep_leaves = []
+        young_leaves = []
+        old_leaves = []
+        for j in range(rep_coalescent[i]):
+            rep_leaves.append(ete3.Tree(name = "rep"))
+
+        for j in range(young_coalescent[i]):
+            young_leaves.append(ete3.Tree(name = "young"))
+        
+        for j in range(old_coalescent[i]):
+            old_leaves.append(ete3.Tree(name = "old"))
+        
+        rep_tree.append(rep_leaves)
+        young_tree.append(young_leaves)
+        old_tree.append(old_leaves)
+
+    #Construct the edges between nodes
+    for i in range(len(events)):
+        #Diffusive replication
+        if events[i] == 0:
+            add_parents_event0(young_coalescent, rep_tree, young_tree, old_tree, i, subsample_molecule_indexes)
+            
+        #Non-diffusive replication
+        elif events[i] == 1:
+            add_parents_event1(rep_tree, young_tree, old_tree, i, subsample_molecule_indexes)
+
+        #Birth event
+        elif events[i] == 2:
+            add_parents_event2(rep_tree, young_tree, old_tree, i, subsample_molecule_indexes)
+        #Ageing event
+        elif events[i] == 3:
+            add_parents_event3(rep_tree, young_tree, old_tree, i, subsample_molecule_indexes)
+        #Rejuvenation event
+        elif events[i] == 7:
+            add_parents_event7(rep_tree, young_tree, old_tree, i, subsample_molecule_indexes)
+
+    return trees
+
+#Inputs the tree object and subsamples a tree from it
+subpop_colors = {"rep": "#0C4202", "young": "#00B0F0", "old": "#A6A6A6"}
+def subsample_tree(trees, rep_num, young_num, old_num, coalescent_times, seed = 0, random = False):
+
+    #np.random.seed(seed)
+
+    rep_tree, young_tree, old_tree = trees
+
+    #select indices of leaves that we will construct the subtree from
+    if random:
+        indices = np.random.choice(len(rep_tree[0]) + len(young_tree[0]) + len(old_tree[0]), rep_num + young_num + old_num, replace = False)
+        
+        rep_indices = []
+        young_indices = []
+        old_indices = []
+        for index in indices:
+            if index < len(rep_tree[0]):
+                rep_indices.append(index)
+            elif index - len(rep_tree[0]) < len(young_tree[0]):
+                young_indices.append(index - len(rep_tree[0]))
+            else:
+                old_indices.append(index - len(rep_tree[0]) - len(young_tree[0]))
+
+        rep_num = len(rep_indices)
+        young_num = len(young_indices)
+        old_num = len(old_indices)
+    
+    else:
+        rep_indices = np.random.choice(len(rep_tree[0]), rep_num, replace = False)
+        young_indices = np.random.choice(len(young_tree[0]), young_num, replace = False)
+        old_indices = np.random.choice(len(old_tree[0]), old_num, replace = False)
+
+    rep_subtree = []
+    young_subtree = []
+    old_subtree = []
+
+    #extracting the nodes associated to the above selected indices
+    for index in rep_indices:
+        rep_subtree.append(rep_tree[0][index])
+
+    for index in young_indices:
+        young_subtree.append(young_tree[0][index])
+
+    for index in old_indices:
+        old_subtree.append(old_tree[0][index])
+
+    repyoungold = []
+    repyoungold.extend(rep_subtree)
+    repyoungold.extend(young_subtree)
+    repyoungold.extend(old_subtree)
+
+    #current new tree is a list of nodes of the current 'time slice' of the NEW tree we are creating (which is a subtree of the tree we're inputting). 
+    # We will iterate backwards in time updating this based on the state of the new time slice
+
+    print(rep_num)
+    print(young_num)
+    print(old_num)
+    current_new_tree = []
+    for i in range(rep_num):
+        current_new_tree.append(ete3.Tree(name = "rep"))
+
+    for i in range(young_num):
+        current_new_tree.append(ete3.Tree(name = "young"))
+
+    for i in range(old_num):
+        current_new_tree.append(ete3.Tree(name = "old"))
+
+    #list of times associated with current_new_tree
+    current_node_times = list(np.zeros(len(current_new_tree)))
+
+    for node in current_new_tree:
+        style = ete3.NodeStyle()
+        style["hz_line_color"] = subpop_colors[node.name]
+        style["fgcolor"] = subpop_colors[node.name]
+        style["size"] = 0
+        style["hz_line_width"] = 10
+        node.set_style(style)
+                    
+    #Iteratively constructing the subtree by moving up from the leaves. Current nodes is a list of nodes of the current 'time slice' of the tree we are inputting
+    current_nodes = repyoungold
+    k=0
+    while True:
+        #print(k)
+
+        #break if common ancestor has been reached
+        if len(current_nodes) == 1:
+            break
+
+        #make a list of parents of the input tree
+        next_nodes = []
+        for i in range(len(current_nodes)):
+            current_node = current_nodes[i]
+            next_nodes.append(current_node.up)
+
+        #break if we traversed the whole simulation without finding a common ancestor
+        if current_node.up is None:
+            break
+
+        
+        #Check if there are two of the same parent. If so, a coalescent event has occured - delete the duplicate and coalesce the two children
+        break_next_loop = False
+        coalesced_node_indexes = []
+        for i in range(len(next_nodes)-1):
+            for j in range(len(next_nodes[i+1:])):
+                if next_nodes[i] == next_nodes[i+1+j]:
+
+                    #recreate the parent node and coalesce both children to it
+                    node0 = ete3.Tree(name = next_nodes[i].name)
+                    node0.add_child(current_new_tree[i])
+                    node0.add_child(current_new_tree[i+1+j])
+
+                    #set the length of the branches to be the recorded times
+                    current_new_tree[i]._set_dist(coalescent_times[k] - current_node_times[i])
+                    current_new_tree[i+1+j]._set_dist(coalescent_times[k] - current_node_times[i+1+j])
+
+                    #Set the colour of the branch spanning from the new parent as green (as it is replicating)
+                    style = ete3.NodeStyle()
+                    style["hz_line_color"] = subpop_colors[node0.name]
+                    style["vt_line_color"] = subpop_colors[node0.name]
+                    style["fgcolor"] = subpop_colors[node0.name]
+                    style["size"] = 0
+                    style["vt_line_width"] = 10
+                    style["hz_line_width"] = 10
+                    node0.set_style(style)        
+
+                    #Update the time slice to remove the two children and add the parent
+                    current_new_tree[i] = node0
+                    current_new_tree.pop(i+1+j)
+                    #Update the parents
+                    next_nodes.pop(i+1+j)
+
+                    #Update the time of this new node and remove the old
+                    current_node_times[i] = coalescent_times[k]
+                    current_node_times.pop(i+1+j)
+
+                    #Keep track of the molecules which coalesced
+                    coalesced_node_indexes.append(i)
+                    coalesced_node_indexes.append(i+1+j)
+                    
+                    break_next_loop = True
+                    break
+            if break_next_loop:
+                break
+        
+        #Check if theres been a migration event
+        for i in range(len(current_nodes)):
+            current_node = current_nodes[i]
+            if (current_node.up.name != current_node.name) and (i not in coalesced_node_indexes):
+                node0 = ete3.Tree(name = current_node.up.name)
+                node0.add_child(current_new_tree[i])
+
+                current_new_tree[i]._set_dist(coalescent_times[k] - current_node_times[i])
+
+                style = ete3.NodeStyle()
+                style["hz_line_color"] = subpop_colors[node0.name]
+                style["fgcolor"] = subpop_colors[node0.name]
+                style["size"] = 0
+                style["hz_line_width"] = 10
+                node0.set_style(style)
+
+                current_node_times[i] = coalescent_times[k]
+                current_new_tree[i] = node0
+            
+        current_nodes = next_nodes
+        k +=1
+
+    return current_new_tree
+
+def subsample_uncoloured_tree(trees, rep_indices, young_indices, old_indices, coalescent_times, seed = 0, random = False):
+
+    np.random.seed(seed)
+
+    rep_tree, young_tree, old_tree = trees
+
+    rep_num = len(rep_indices)
+    young_num = len(young_indices)
+    old_num = len(old_indices)
+
+    rep_subtree = []
+    young_subtree = []
+    old_subtree = []
+
+    #extracting the nodes associated to the above selected indices
+    for index in rep_indices:
+        rep_subtree.append(rep_tree[0][index])
+
+    for index in young_indices:
+        young_subtree.append(young_tree[0][index])
+
+    for index in old_indices:
+        old_subtree.append(old_tree[0][index])
+
+    repyoungold = []
+    repyoungold.extend(rep_subtree)
+    repyoungold.extend(young_subtree)
+    repyoungold.extend(old_subtree)
+
+    #current new tree is a list of nodes of the current 'time slice' of the NEW tree we are creating (which is a subtree of the tree we're inputting). 
+    # We will iterate backwards in time updating this based on the state of the new time slice
+    current_new_tree = []
+    for i in range(rep_num):
+        current_new_tree.append(ete3.Tree(name = "rep"))
+
+    for i in range(young_num):
+        current_new_tree.append(ete3.Tree(name = "young"))
+
+    for i in range(old_num):
+        current_new_tree.append(ete3.Tree(name = "old"))
+
+    #list of times associated with current_new_tree
+    current_node_times = list(np.zeros(len(current_new_tree)))
+
+    for node in current_new_tree:
+        style = ete3.NodeStyle()
+        style["hz_line_color"] = subpop_colors[node.name]
+        style["fgcolor"] = subpop_colors[node.name]
+        style["size"] = 0
+        style["hz_line_width"] = 10
+        node.set_style(style)
+                    
+    #Iteratively constructing the subtree by moving up from the leaves. Current nodes is a list of nodes of the current 'time slice' of the tree we are inputting
+    current_nodes = repyoungold
+    k=0
+    while True:
+
+        #break if common ancestor has been reached
+        if len(current_nodes) == 1:
+            break
+
+        #make a list of parents of the input tree
+        next_nodes = []
+        for i in range(len(current_nodes)):
+            current_node = current_nodes[i]
+            next_nodes.append(current_node.up)
+        
+        #Check if there are two of the same parent. If so, a coalescent event has occured - delete the duplicate and coalesce the two children
+        break_next_loop = False
+        coalesced_node_indexes = []
+        for i in range(len(next_nodes)-1):
+            for j in range(len(next_nodes[i+1:])):
+                if next_nodes[i] == next_nodes[i+1+j]:
+
+                    #recreate the parent node and coalesce both children to it
+                    node0 = ete3.Tree(name = next_nodes[i].name)
+                    node0.add_child(current_new_tree[i])
+                    node0.add_child(current_new_tree[i+1+j])
+
+                    #set the length of the branches to be the recorded times
+                    current_new_tree[i]._set_dist(coalescent_times[k] - current_node_times[i])
+                    current_new_tree[i+1+j]._set_dist(coalescent_times[k] - current_node_times[i+1+j])
+
+                    #Set the colour of the branch spanning from the new parent as green (as it is replicating)
+                    style = ete3.NodeStyle()
+                    style["hz_line_color"] = subpop_colors[node0.name]
+                    style["vt_line_color"] = subpop_colors[node0.name]
+                    style["fgcolor"] = subpop_colors[node0.name]
+                    style["size"] = 0
+                    style["vt_line_width"] = 10
+                    style["hz_line_width"] = 10
+                    node0.set_style(style)        
+
+                    #Update the time slice to remove the two children and add the parent
+                    current_new_tree[i] = node0
+                    current_new_tree.pop(i+1+j)
+                    #Update the parents
+                    next_nodes.pop(i+1+j)
+
+                    #Update the time of this new node and remove the old
+                    current_node_times[i] = coalescent_times[k]
+                    current_node_times.pop(i+1+j)
+
+                    #Keep track of the molecules which coalesced
+                    coalesced_node_indexes.append(i)
+                    coalesced_node_indexes.append(i+1+j)
+                    
+                    break_next_loop = True
+                    break
+            if break_next_loop:
+                break
+            
+        current_nodes = next_nodes
+        k +=1
+
+    return current_new_tree[0]
+
+#Combines all of the above coalescent functions to compute various statistics of the final subsampled tree
+def compute_statistics(params, num_rep, num_young, num_old, random):
+    event_times, event_indexes, molecule_indexes, nucleoid_state = extended_three_population_forward_coalescent(params, l = 500)
+
+    rep_coalescent, young_coalescent, old_coalescent, coalescent_times, coalescent_event_indexes, coalescent_molecule_indexes = extract_coalescent_info(event_times, event_indexes, molecule_indexes, nucleoid_state)
+
+    tree = build_tree_object(rep_coalescent, young_coalescent, old_coalescent, coalescent_event_indexes, coalescent_molecule_indexes)
+
+    subtree = subsample_tree(tree, num_rep, num_young, num_old, coalescent_times, seed = 0, random = random)
+
+    statistics = []
+
+    if len(subtree) > 1:
+        print("MRCA not found")
+    else:
+        for n in subtree[0].traverse():
+            if len(n.children) == 2:
+                statistics.append(n.get_farthest_leaf()[1])
+
+    #returns time until first, second, third, ..., num_leaves'th coalescent event
+    return np.sort(statistics)
+
+#Combines all of the above coalescent functions to compute SFS of the final subsampled tree
+def compute_SFS(params, num_rep, num_young, num_old, random):
+    event_times, event_indexes, molecule_indexes, nucleoid_state = extended_three_population_forward_coalescent(params, l = 500)
+
+    rep_coalescent, young_coalescent, old_coalescent, coalescent_times, coalescent_event_indexes, coalescent_molecule_indexes = extract_coalescent_info(event_times, event_indexes, molecule_indexes, nucleoid_state)
+
+    tree = build_tree_object(rep_coalescent, young_coalescent, old_coalescent, coalescent_event_indexes, coalescent_molecule_indexes)
+
+    subtree = subsample_tree(tree, num_rep, num_young, num_old, coalescent_times, seed = 0, random = random)
+
+    statistics = []
+
+    if len(subtree) > 1:
+        print("MRCA not found")
+    else:
+        for n in subtree[0].traverse():
+            if len(n.children) == 2:
+                statistics.append(n.get_farthest_leaf()[1])
+
+    #returns time until first, second, third, ..., num_leaves'th coalescent event
+    return np.sort(statistics)
+    

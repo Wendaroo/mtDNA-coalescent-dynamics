@@ -8,6 +8,7 @@ from .data_preprocessing import (training_mito_lengths, training_time_indicator,
                                  validation_edu_number_1hr, validation_edu_number_3hr, validation_edu_number_7hr, validation_edu_number_24hr,
                                  training_edu_number_1hr, training_edu_number_3hr, training_edu_number_7hr, training_edu_number_24hr)
 import ete3
+from math import comb
 
 #############################################################################################################################
 #                                                                                                                           #
@@ -2419,47 +2420,271 @@ def subsample_uncoloured_tree(trees, rep_indices, young_indices, old_indices, co
 
     return current_new_tree[0]
 
-#Combines all of the above coalescent functions to compute various statistics of the final subsampled tree
-def compute_statistics(params, num_rep, num_young, num_old, random):
-    event_times, event_indexes, molecule_indexes, nucleoid_state = extended_three_population_forward_coalescent(params, l = 500)
+#############################################################################################################################
+#                                                                                                                           #
+#                                                          SFS SIMULATORS                                                   #
+#                                                          AND ANALYTICS                                                    #
+#                                                                                                                           #
+#############################################################################################################################
+def extended_three_population_mutational_forward_coalescent(params, truncation_time = 4, mutation_probability = 0.01, l = 500, N=0, birth_rate = logarithmic_birth, death_rate = constant_death, n_coal = 20):
+    """
 
-    rep_coalescent, young_coalescent, old_coalescent, coalescent_times, coalescent_event_indexes, coalescent_molecule_indexes = extract_coalescent_info(event_times, event_indexes, molecule_indexes, nucleoid_state)
+    Args:
+        params: List[float] or array[float] containing the following elements in the following order (as defined in Wolf, Mjeku et al):
+            - beta0 (float, beta0 >= 0)
+            - beta1 (float, beta1 >= 0)
+            - p (float, 0 <= p <= 1)
+            - mu_d (float, mu_d >= 0)
+            - mu_b (float, mu_b >= 0)
+            - mu_r (float, mu_r >= 0)
+            - c (float, c >= 0)):
+    """
 
-    tree = build_tree_object(rep_coalescent, young_coalescent, old_coalescent, coalescent_event_indexes, coalescent_molecule_indexes)
+    beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params
+    #Defining the birth rate to maintain equilibrium
+    if mu_d_o != 0:
+        mu_b = (mu_d_r+p*mu_r)*(mu_d_y*mu_d_o + mu_d_y*mu_rej+mu_d_o*mu_a)/((mu_d_o+mu_rej)*(mu_r-mu_d_r))
 
-    subtree = subsample_tree(tree, num_rep, num_young, num_old, coalescent_times, seed = 0, random = random)
-
-    statistics = []
-
-    if len(subtree) > 1:
-        print("MRCA not found")
     else:
-        for n in subtree[0].traverse():
-            if len(n.children) == 2:
-                statistics.append(n.get_farthest_leaf()[1])
+        mu_b = (mu_d_r+p*mu_r)*mu_d_y/(mu_r-mu_d_r)
 
-    #returns time until first, second, third, ..., num_leaves'th coalescent event
-    return np.sort(statistics)
+    initialisation_denom = mu_b/(mu_d_r + p*mu_r) + 1 + mu_a/(mu_d_o + mu_rej)
 
-#Combines all of the above coalescent functions to compute SFS of the final subsampled tree
-def compute_SFS(params, num_rep, num_young, num_old, random):
-    event_times, event_indexes, molecule_indexes, nucleoid_state = extended_three_population_forward_coalescent(params, l = 500)
+    f_r = mu_b/((mu_d_r+ p*mu_r)*initialisation_denom)
+    f_y = 1/initialisation_denom
 
-    rep_coalescent, young_coalescent, old_coalescent, coalescent_times, coalescent_event_indexes, coalescent_molecule_indexes = extract_coalescent_info(event_times, event_indexes, molecule_indexes, nucleoid_state)
+    if N !=0:
+        n_init = N
+        l = (N-beta0)/beta1
 
-    tree = build_tree_object(rep_coalescent, young_coalescent, old_coalescent, coalescent_event_indexes, coalescent_molecule_indexes)
-
-    subtree = subsample_tree(tree, num_rep, num_young, num_old, coalescent_times, seed = 0, random = random)
-
-    statistics = []
-
-    if len(subtree) > 1:
-        print("MRCA not found")
     else:
-        for n in subtree[0].traverse():
-            if len(n.children) == 2:
-                statistics.append(n.get_farthest_leaf()[1])
-
-    #returns time until first, second, third, ..., num_leaves'th coalescent event
-    return np.sort(statistics)
+        n_init = int(beta0 + beta1*l)
     
+    step_matrix = np.array([[-1,0,1,0,-1,0,0,0],
+                           [2,1,-1,-1,0,-1,0,1],
+                           [0,0,0,1,0,0,-1,-1]]).astype(np.float64)
+    
+    #which population does the event act on
+    event_to_population = np.array([0,0,1,1,0,1,2,2])
+    
+    #We only transpose this matrix so that we can easily access the columns later
+    step_matrix = step_matrix.transpose()
+
+    initialisation_denom = mu_b/(mu_d_r + p*mu_r) + 1 + mu_a/(mu_d_o + mu_rej)
+    initial_replicating = n_init * mu_b/((mu_d_r+ p*mu_r)*initialisation_denom)
+    initial_young = n_init/initialisation_denom
+    initial_old = n_init * mu_a/((mu_d_o + mu_rej)*initialisation_denom)
+    n_init = initial_replicating + initial_young + initial_old
+
+    nucleoid_state = np.array([round(initial_replicating), round(initial_young), round(initial_old)]).astype(np.int64)
+
+    current_time =  0
+    replicating_mutants = [[] for _ in range(round(initial_replicating))]
+    young_mutants = [[] for _ in range(round(initial_young))]
+    old_mutants = [[] for _ in range(round(initial_old))]
+
+    mutant_number = 0
+    while current_time < truncation_time*24*365:
+
+        current_replicating = nucleoid_state[0]
+        current_young = nucleoid_state[1]
+        current_old = nucleoid_state[2]
+
+        n = int(np.sum(nucleoid_state))
+        if n == 0:
+            break
+        
+        ##################----------------Generating the time that the next event takes place---------------------######################
+
+        max_propensity = birth_rate(current_young, current_replicating, mu_b, c, l, f_y, f_r, beta0, beta1, n) + death_rate(current_old, n, mu_d_o, c, l, beta0, beta1) + \
+            death_rate(current_young, n, mu_d_y, c, l, beta0, beta1) + death_rate(current_replicating, n, mu_d_r, c, l, beta0, beta1) + \
+                current_replicating*mu_r + mu_a*current_young + mu_rej*current_old
+        next_event_time = np.random.exponential(1/max_propensity)
+
+        # if current_time //(0.25*24*365) < (current_time + next_event_time)//(0.25*24*365):
+        #     print(current_time/(24*365))
+            
+        current_time += next_event_time
+
+        ##################-------------------------Generating what kind of event this is---------------------------#####################
+
+        p_birth = birth_rate(current_young, current_replicating, mu_b, c, l, f_y, f_r, beta0, beta1, n)/max_propensity
+        p_rep_death = death_rate(current_replicating,n,mu_d_r,c,l,beta0, beta1)/max_propensity
+        p_young_death = death_rate(current_young,n,mu_d_y,c,l,beta0, beta1)/max_propensity
+        p_old_death = death_rate(current_old,n,mu_d_o,c,l,beta0, beta1)/max_propensity
+        p_double_truebirth = p*current_replicating*mu_r/max_propensity
+        p_single_truebirth = (1-p)*current_replicating*mu_r/max_propensity
+        p_ageing = mu_a*current_young/max_propensity
+        p_rej = mu_rej*current_old/max_propensity
+
+        probability_vector = np.array([p_double_truebirth, p_single_truebirth, p_birth, p_ageing, p_rep_death, p_young_death, p_old_death, p_rej])
+        r2 = np.random.uniform(0,1)
+        event_index = np.searchsorted(np.cumsum(probability_vector), r2)
+
+        #Picking a population which this event acts on
+        molecule_index = int(np.random.uniform(0,1)*nucleoid_state[event_to_population[event_index]])
+
+        #Updating the nucleoid state based on which event occured
+        nucleoid_state += step_matrix[event_index].astype(np.int64).flatten()
+
+        #tracking the SFS
+        #non preferential rep
+        if event_index == 0: 
+            mut = np.random.binomial(1,mutation_probability)
+
+            young_mutants.append(replicating_mutants[molecule_index]*1)
+            young_mutants.append(replicating_mutants[molecule_index]*1)
+            replicating_mutants.pop(molecule_index)
+            if mut:
+                young_mutants[-1].append(mutant_number)
+                mutant_number += 1
+        
+        #preferential rep
+        elif event_index == 1:
+            mut = np.random.binomial(1,mutation_probability)
+            young_mutants.append(replicating_mutants[molecule_index]*1)
+            if mut:
+                k = np.random.binomial(1, 0.5)
+                if k:
+                    young_mutants[-1].append(mutant_number)
+                else:
+                    replicating_mutants[molecule_index].append(mutant_number)
+                mutant_number += 1
+        
+        #birth
+        elif event_index == 2:
+            replicating_mutants.append(young_mutants[molecule_index])
+            young_mutants.pop(molecule_index)
+
+        #ageing
+        elif event_index == 3:
+            old_mutants.append(young_mutants[molecule_index])
+            young_mutants.pop(molecule_index)
+
+        #replicating death
+        elif event_index == 4:
+            replicating_mutants.pop(molecule_index)
+
+        #young death
+        elif event_index == 5:
+            young_mutants.pop(molecule_index)
+
+        #old death
+        elif event_index == 6:
+            old_mutants.pop(molecule_index)
+
+        #rejuvination
+        else:
+            young_mutants.append(old_mutants[molecule_index])
+            old_mutants.pop(molecule_index)
+
+    
+    #make this output mutation heteroplasmy time evolution. This will give me a sense of the dynamics
+    #and whether they are correct. If it is correct, the number should behave as a simple random walk.
+    #(ignoring the times each step time takes)
+    current_replicating = nucleoid_state[0]
+    current_young = nucleoid_state[1]
+    current_old = nucleoid_state[2]
+    cSFS = np.zeros(mutant_number)
+    n = int(np.sum(nucleoid_state))
+
+    indices = np.random.choice(current_replicating + current_young + current_old, n_coal, replace = False)
+    #indices = np.random.choice(current_replicating + current_young, n_coal, replace = False)
+        
+    rep_indices = []
+    young_indices = []
+    old_indices = []
+    for index in indices:
+        if index < current_replicating:
+            rep_indices.append(index)
+        elif index - current_replicating < current_young:
+            young_indices.append(index - current_replicating)
+        else:
+            old_indices.append(index - current_replicating - current_young)
+
+    replicating_mutants_subindexed = [replicating_mutants[i] for i in rep_indices]
+    young_mutants_subindexed = [young_mutants[i] for i in young_indices]
+    old_mutants_subindexed = [old_mutants[i] for i in old_indices]
+    for i in range(mutant_number):
+        mutant_counter = 0
+        for replicating_mutant in replicating_mutants_subindexed:
+            mutant_counter += (i in replicating_mutant)
+        for young_mutant in young_mutants_subindexed:
+            mutant_counter += (i in young_mutant)
+        for old_mutant in old_mutants_subindexed:
+            mutant_counter += (i in old_mutant)
+
+        cSFS[i] = mutant_counter/n_coal
+
+    #print(mutant_number)
+        
+    return cSFS[cSFS != 0], replicating_mutants, young_mutants, old_mutants
+
+
+def Z(k,j,n):
+    prod = 1
+    for i in range(k, n+1):
+        if i != j:
+            prod = prod*comb(i,2)/(comb(i,2) - comb(j,2))
+
+    return prod
+
+def expected_mutant_num(params, truncation_time, b, n = 200, l =500, N = 1000, mu_c=0):
+    beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params
+    if mu_d_o != 0:
+        mu_b = (mu_d_r+p*mu_r)*(mu_d_y*mu_d_o + mu_d_y*mu_rej+mu_d_o*mu_a)/((mu_d_o+mu_rej)*(mu_r-mu_d_r))
+
+    else:
+        mu_b = (mu_d_r+p*mu_r)*mu_d_y/(mu_r-mu_d_r)
+
+    f_y = 1/(1 + mu_b/(mu_d_r + p*mu_r) + mu_a/(mu_d_o + mu_rej))
+    f_r = f_y*mu_b/(mu_d_r + p*mu_r)
+    
+    if N == 0:
+        N_y = int((beta0 + beta1*l)*f_y)
+        N_r = int((beta0 + beta1*l)*f_r)
+    
+    else:
+        N_y = int(f_y*N)
+        N_r = int(f_r*N)
+
+    pi_y = 1/(1 + (1+p)*mu_b*mu_r/(mu_d_r+p*mu_r)**2 + mu_a*mu_rej/(mu_d_o + mu_rej)**2)
+
+    if mu_c==0:
+        coal = (pi_y/N_y)**2 * (mu_r + mu_d_r*p)/(mu_r*p + mu_d_r) * 2 * mu_r*N_r
+    else:
+        coal=mu_c
+
+    # W = truncation_time*24*365/N**2 * 2 * mu_r*N_r
+    # print(mu_r*N_r)
+    # print(W)
+    W = truncation_time*24*365 * coal
+
+    if b < n:
+        doub_sum = 0
+        for k in range(2,n+1):
+            sum = 0
+            for j in range(k, n+1):
+                sum += Z(k,j,n)*np.exp(-comb(j,2)*W)
+
+            doub_sum += sum*comb(n-k, b-1)/comb(n-1,b)
+        
+        return (2/b)*(1-doub_sum)
+    
+    if b == n:
+        sum = 0
+        for j in range(2,n+1):
+            sum += Z(2,j,n)*np.exp(-comb(j,2)*W)/comb(j,2)
+
+        return W - 2*(1-1/n) + sum
+    
+
+def expected_SFS(params, truncation_time=2, n = 200, l = 500, N = 1000, mu_c = 0):
+    SFS = np.zeros(n)
+    for i in range(1, n+1):
+        #print(i)
+        SFS[i-1] = expected_mutant_num(params, truncation_time, i, n = n, l = l, N=N, mu_c=mu_c)
+    
+    return SFS/np.sum(SFS)
+
+

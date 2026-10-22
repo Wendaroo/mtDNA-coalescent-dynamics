@@ -69,7 +69,7 @@ def extended_three_population_posteriors(all_params, accepted_params, all_chase_
 
             ax[0,3].hist(extended_log10(np.transpose(all_params[indices])[5]), density = True, label = "prior", bins=50)
             ax[0,3].hist(extended_log10(np.transpose(accepted_params[accepted_indices])[5]), density = True, label = "posterior", bins=50, color = "orange")
-            ax[0,3].set_title("$log_{10}(\mu_{d,o})$")
+            ax[0,3].set_title("$log_{10}(\mu_{d,q})$")
 
             ax[0,4].hist(np.log10(np.transpose(all_params[indices])[6]), density = True, label = "prior", bins=50)
             ax[0,4].hist(np.log10(np.transpose(accepted_params[accepted_indices])[6]), density = True, label = "posterior", bins=50, color = "orange")
@@ -169,7 +169,7 @@ def extended_three_population_posteriors(all_params, accepted_params, all_chase_
             ax[0,3].hist(extended_log10(np.transpose(all_params[indices])[5]), density = True, label = "prior", bins=50, color = "darkviolet")
             ax[0,3].hist(extended_log10(np.transpose(all_chase_pulse_params[chase_indices])[5]), density = True, label = "prior", bins=50)
             ax[0,3].hist(extended_log10(np.transpose(accepted_chase_pulse_params[chase_accepted_indices])[5]), density = True, label = "posterior", bins=50, color = "orange")
-            ax[0,3].set_title("$log_{10}(\mu_{d,i})$")
+            ax[0,3].set_title("$log_{10}(\mu_{d,q})$")
 
             ax[0,4].hist(np.log10(np.transpose(all_params[indices])[6]), density = True, label = "prior", bins=50, color = "darkviolet")
             ax[0,4].hist(np.log10(np.transpose(all_chase_pulse_params[chase_indices])[6]), density = True, label = "prior", bins=50)
@@ -217,7 +217,7 @@ def extended_three_population_posteriors(all_params, accepted_params, all_chase_
 
             ax[1,5].hist(np.log10(np.transpose(all_chase_chase_params[chase_indices])[5]), density = True, label = "Prior", bins=50)
             ax[1,5].hist(np.log10(np.transpose(accepted_chase_chase_params[chase_accepted_indices])[5]), density = True, label = "Posterior", bins=50, color = "orange")
-            ax[1,5].set_title("$log_{10}(\mu_{d,i}^{chase})$")
+            ax[1,5].set_title("$log_{10}(\mu_{d,q}^{chase})$")
             #ax[1,5].legend()
 
             #_ = ax[1,2].set_xticks([-8,-6,-4,-2], ["$-\infty$", -6,-4,-2])
@@ -270,8 +270,8 @@ def extended_three_population_posteriors(all_params, accepted_params, all_chase_
             ax[0,1].set_title('$log_{10}(\mu_{d,r})$')
             ax[2,0].set_ylabel('$log_{10}(\mu_{d,a})$')
             ax[0,2].set_title('$log_{10}(\mu_{d,a})$')
-            ax[3,0].set_ylabel('$log_{10}(\mu_{d,i})$')
-            ax[0,3].set_title('$log_{10}(\mu_{d,i})$')
+            ax[3,0].set_ylabel('$log_{10}(\mu_{d,q})$')
+            ax[0,3].set_title('$log_{10}(\mu_{d,q})$')
             ax[4,0].set_ylabel("$log_{10}(\mu_a)$")
             ax[0,4].set_title("$log_{10}(\mu_a)$")
             ax[5,0].set_ylabel('$1/\mu_r$')
@@ -353,8 +353,8 @@ def extended_three_population_posteriors(all_params, accepted_params, all_chase_
             ax[0,1].set_title('$log_{10}(\mu_{d,r})$')
             ax[2,0].set_ylabel('$log_{10}(\mu_{d,a})$')
             ax[0,2].set_title('$log_{10}(\mu_{d,a})$')
-            ax[3,0].set_ylabel('$log_{10}(\mu_{d,i})$')
-            ax[0,3].set_title('$log_{10}(\mu_{d,i})$')
+            ax[3,0].set_ylabel('$log_{10}(\mu_{d,q})$')
+            ax[0,3].set_title('$log_{10}(\mu_{d,q})$')
             ax[4,0].set_ylabel("$log_{10}(\mu_a)$")
             ax[0,4].set_title("$log_{10}(\mu_a)$")
             ax[5,0].set_ylabel('$1/\mu_r$')
@@ -363,8 +363,8 @@ def extended_three_population_posteriors(all_params, accepted_params, all_chase_
             ax[0,6].set_title('$log_{10}(\mu_a\')$')
             ax[7,0].set_ylabel('$log_{10}(c)$')
             ax[0,7].set_title('$log_{10}(c)$')
-            ax[8,0].set_ylabel('$log_{10}(\mu_{d,i}^{chase})$')
-            ax[0,8].set_title('$log_{10}(\mu_{d,i}^{chase})$')
+            ax[8,0].set_ylabel('$log_{10}(\mu_{d,q}^{chase})$')
+            ax[0,8].set_title('$log_{10}(\mu_{d,q}^{chase})$')
 
             ax[8,8].spines['top'].set_visible(False)
             ax[8,8].spines['right'].set_visible(False)
@@ -416,7 +416,7 @@ def mu_b_posterior(params):
     ax[0,0].set_xlabel("$p$")
     ax[0,1].set_xlabel("$\\log_{10}(\\mu_{d,r})$")
     ax[0,2].set_xlabel("$\\log_{10}(\\mu_{d,a})$")
-    ax[0,3].set_xlabel("$\\log_{10}(\\mu_{d,i})$")
+    ax[0,3].set_xlabel("$\\log_{10}(\\mu_{d,q})$")
     ax[0,4].set_xlabel("$\\log_{10}(\\mu_a)$")
     ax[1,0].set_xlabel("$1/\\mu_r$")
     ax[1,1].set_xlabel("$\\log_{10}(\\mu_a')$")
@@ -488,6 +488,164 @@ def population_proportions(params):
     plt.legend()
     plt.tight_layout()
 
+def coalescent_rate_posterior(params):
+
+    beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params.transpose()
+    mu_b = np.zeros(len(beta0))
+    mu_b[mu_d_o != 0] = ((mu_d_r+p*mu_r)*(mu_d_y*mu_d_o + mu_d_y*mu_rej+mu_d_o*mu_a)/((mu_d_o+mu_rej)*(mu_r-mu_d_r)))[mu_d_o != 0]
+    mu_b[mu_d_o == 0] = ((mu_d_r+p*mu_r)*mu_d_y/(mu_r-mu_d_r))[mu_d_o == 0]
+
+    f_y = 1/(1 + mu_b/(mu_d_r + p*mu_r) + mu_a/(mu_d_o + mu_rej))
+    f_r = (mu_b/(mu_d_r + p*mu_r))*1/(1 + mu_b/(mu_d_r + p*mu_r) + mu_a/(mu_d_o + mu_rej))
+
+    pi_y = 1/(1 + (1+p)*mu_b*mu_r/(mu_d_r+p*mu_r)**2 + mu_a*mu_rej/(mu_d_o + mu_rej)**2)
+
+    mu_c = 2 * (pi_y/f_y)**2 * f_r * (mu_r + mu_d_r*p)/(mu_r*p + mu_d_r) * mu_r
+    mu_c_moran = 2*mu_r*f_r
+
+    fig, ax = plt.subplots(1,2, figsize = (12,3))
+    ax[0].hist(np.log10(mu_c), density= True, bins = 30, label = "Three-population", alpha = 0.5)
+    ax[0].hist(np.log10(mu_c_moran), density= True, bins = 30, label = "Equivalent Moran", alpha = 0.5)
+    ax[0].set_xlabel("$log_{10}(N\mu_{coal})$")
+    ax[0].set_ylabel("Density")
+    ax[0].legend()
+
+    ax[1].hist(mu_c/mu_c_moran, density= True, bins = 30, alpha = 0.5)
+    ax[1].set_xlabel("$\mu_{coal}^{subpop}/\mu_{coal}^{moran} (= N_{eff}^{moran}/N_{eff}^{subpop}  = \mathcal{F}_p\mathcal{F}_s^2)$")
+    ax[1].set_ylabel("Density")
+
+def mixing_posterior(params):
+    beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params.transpose()
+    m = mu_rej/(mu_rej+mu_d_o)
+    fig, ax = plt.subplots(1,2, figsize = (10,3))
+    ax[0].bar([1,2,3], [np.sum(m == 0)/500,(500 - np.sum(m == 0) - np.sum(m == 1))/500 , np.sum(m == 1)/500], capsize = 3, alpha = 0.6)
+    ax[0].set_xticks([1,2,3],["$m_q = 0$", "$0 < m_q < 1$", "$m_q = 1$"])
+    ax[0].set_ylabel("Posterior \n probability")
+    ax[0].set_title("$m_q$ binned posterior")
+
+    values = np.arange(0,1, 0.001)
+    kde1 = KernelDensity(kernel='gaussian', bandwidth = 0.03).fit(m[np.logical_and(m>0, m<1)].reshape(-1,1))
+    log_dens1 = kde1.score_samples(values.reshape(-1,1))
+    kde = np.exp(log_dens1)
+
+    ax[1].fill_between(values,kde, alpha = 0.7)
+    ax[1].set_xlabel("$m_q$")
+    ax[1].set_yticks([],[])
+    ax[1].set_title("$0<m_q<1$ posterior")
+
+def coalescent_rate(f_y, f_r, m, mean_params):
+
+    beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = mean_params
+    mu_d_r=0
+    #print(mu_d_r)
+    if mu_d_o==0:
+        mu_b = (mu_d_r+p*mu_r)*mu_d_y/(mu_r-mu_d_r)
+    else:
+        mu_b = (mu_d_r+p*mu_r)*(mu_d_y*mu_d_o + mu_d_y*mu_rej+mu_d_o*mu_a)/((mu_d_o+mu_rej)*(mu_r-mu_d_r))
+    mu_turn = (mu_b/(mu_d_r + p*mu_r))*1/(1 + mu_b/(mu_d_r + p*mu_r) + mu_a/(mu_d_o + mu_rej)) * mu_r
+    #print(p)
+    #print(mu_turn)
+    F = 1/((1-m)*f_y + (1+p)*mu_turn/(mu_d_r + p*mu_turn/f_r) + m*(1-f_r))
+
+    return 2*mu_turn*(p*mu_d_r +mu_turn/f_r)/(mu_d_r + p*mu_turn/f_r) * F**2
+
+def coalescent_rate_surface(params):
+
+    f_o = np.arange(0.05, 1, 0.01)
+    f_r = np.arange(0.05, 1, 0.01)
+    X, Y = np.meshgrid(f_r, f_o)
+    X2 = 1 - X - Y
+    domain_bound = X+Y > 1
+    X[domain_bound] = np.nan
+    Y[domain_bound] = np.nan
+    Z = coalescent_rate(X2, X, 0.2, np.mean(params, axis = 0))
+    Z2 = coalescent_rate(X2, X, 0.5, np.mean(params, axis = 0))
+    Z3 = coalescent_rate(X2, X, 1, np.mean(params, axis = 0))
+    z_min = 0.03
+    z_max=0.1
+
+    z_line = np.linspace(0, 0.5, 100)
+
+    z_min = 0.03
+    z_max=0.3
+
+    # 3. Take your 1D X array (or the first row of your X meshgrid) and mesh it with Z
+    # Note: If X is already a 2D grid, use X[0, :] to get the 1D slice
+    x_1d = X[0, :] if X.ndim == 2 else X
+    Y_plane, Z_plane = np.meshgrid(x_1d, z_line)
+
+    # 4. Create a matching Y grid filled entirely with your constant Y value
+    X_plane = np.full_like(Y_plane, 0.1)
+
+    # Create the figure
+    fig = go.Figure()
+
+    # Add your original data surface
+    fig.add_trace(go.Surface(x=X, y=Y, z=Z3, cmin=z_min, cmax=z_max))
+    fig.add_trace(go.Surface(x=X, y=Y, z=Z2, cmin=z_min, cmax=z_max))
+    fig.add_trace(go.Surface(x=X, y=Y, z=Z, cmin=z_min, cmax=z_max))
+
+    # Add the XZ plane (Plotly calculates true pixel-depth intersections automatically!)
+    fig.add_trace(go.Surface(x=X_plane, y=Y_plane, z=Z_plane, 
+                            colorscale=[[0, 'gray'], [1, 'gray']], 
+                            opacity=0.5, showscale=False))
+
+    layout = go.Layout(
+        margin={"l":0, "r":0, "b":0, "t":50},
+        scene={
+            "xaxis":{"title": 'Replicating proportion'},
+            "yaxis":{"title":'Active proportion'},
+            "zaxis":{"title":'Coalescent rate (scaled)'},
+            "aspectmode":'manual',
+            "aspectratio":{"x":1.0, "y":1.0, "z":1.0}
+        },
+    )
+
+    fig.update_layout(layout)
+    fig.show()
+
+    cmap = plt.get_cmap('viridis')
+    plt.figure(0, figsize = (6,3.7))
+    f_y = np.arange(0,0.9, 0.01)
+    plt.plot(f_y, coalescent_rate(f_y, 0.1, 0.2, np.mean(params, axis = 0)), c = cmap(0.9))
+    plt.plot(f_y, coalescent_rate(f_y, 0.1, 0.5, np.mean(params, axis = 0)), c = cmap(0.4))
+    plt.plot(f_y, coalescent_rate(f_y, 0.1, 1, np.mean(params, axis = 0)), c = cmap(0))
+    plt.xlabel("Fraction active")
+    plt.ylabel("$N\mu_{coal}$")
+
+
+def p_coalescent_rate(params,p):
+
+    beta0, beta1, _, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params
+    if mu_d_o != 0:
+        mu_b = ((mu_d_r+p*mu_r)*(mu_d_y*mu_d_o + mu_d_y*mu_rej+mu_d_o*mu_a)/((mu_d_o+mu_rej)*(mu_r-mu_d_r)))
+    else:
+        mu_b = ((mu_d_r+p*mu_r)*mu_d_y/(mu_r-mu_d_r))
+
+    f_y = 1/(1 + mu_b/(mu_d_r + p*mu_r) + mu_a/(mu_d_o + mu_rej))
+    f_r = (mu_b/(mu_d_r + p*mu_r))*1/(1 + mu_b/(mu_d_r + p*mu_r) + mu_a/(mu_d_o + mu_rej))
+
+    pi_y = 1/(1 + (1+p)*mu_b*mu_r/(mu_d_r+p*mu_r)**2 + mu_a*mu_rej/(mu_d_o + mu_rej)**2)
+
+
+    mu_c = 2 * (pi_y/f_y)**2 * f_r * (mu_r + mu_d_r*p)/(mu_r*p + mu_d_r) * mu_r
+    
+    return mu_c
+
+def bursty_coalescent_curves(params):
+    plt.figure(1,figsize = (5,3))
+    cmap = plt.get_cmap('viridis')
+    x = np.arange(0.001,1,0.001)
+    plt.plot(x, p_coalescent_rate(params[0],x), alpha = 1, c = "black")
+    #plt.plot(x, p_coals[1], c = "black", alpha = 1)
+    plt.plot(x, p_coalescent_rate(params[2],x), alpha = 1, c = "black")
+    plt.plot(x, p_coalescent_rate(params[4],x), alpha = 1, c = "black")
+    #plt.plot(x, p_coals[5], c = "black", alpha = 1)
+    plt.text(0.8, 0.7,"Param 1", fontsize = 14)
+    plt.text(0.8, 0.52,"Param 2", fontsize = 14)
+    plt.text(0.8, 0.23,"Param 3", fontsize = 14)
+    plt.xlabel("p")
+    plt.ylabel("$N\mu_{coal}$")
 
 def parameter_coalescent_correlations(params):
     beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params.transpose()
@@ -512,10 +670,10 @@ def parameter_coalescent_correlations(params):
 
     # 3. Create the colorbar by passing the mappable object and target axis
     # If you want it next to the 3rd plot:
-    fig.colorbar(sc1, ax=ax[4], label = "$m_i$")
+    fig.colorbar(sc1, ax=ax[4], label = "$m_q$")
 
     ax[0].set_ylabel("$N\\mu_{coal}$")
-    ax[0].set_xlabel("$m_i$")
+    ax[0].set_xlabel("$m_q$")
     ax[1].set_xlabel("$f_a$")
     ax[2].set_xlabel("$\\mu_{turn}$ per-capita")
     ax[3].set_xlabel("$\\mathcal{F}_p$")
@@ -542,7 +700,7 @@ def parameter_coalescent_correlations(params):
     ax[0,0].set_xlabel("$p$")
     ax[0,1].set_xlabel("$\\log_{10}(\\mu_{d,r})$")
     ax[0,2].set_xlabel("$\\log_{10}(\\mu_{d,a})$")
-    ax[0,3].set_xlabel("$\\log_{10}(\\mu_{d,i})$")
+    ax[0,3].set_xlabel("$\\log_{10}(\\mu_{d,q})$")
     ax[0,4].set_xlabel("$\\log_{10}(\\mu_a)$")
     ax[1,0].set_xlabel("$1/\\mu_r$")
     ax[1,1].set_xlabel("$\\log_{10}(\\mu_a')$")
@@ -551,7 +709,7 @@ def parameter_coalescent_correlations(params):
 
     # 3. Create the colorbar by passing the mappable object and target axis
     # If you want it next to the 3rd plot:
-    fig.colorbar(sc, ax=ax[1,4], label = "$m_i$")
+    fig.colorbar(sc, ax=ax[1,4], label = "$m_q$")
 
     ax[0,0].set_ylabel("$N\\mu_{coal}$")
     ax[1,0].set_ylabel("$N\\mu_{coal}$")
@@ -599,7 +757,7 @@ def parameter_coalescent_correlations(params):
     ax[0,0].set_xlabel("$p$")
     ax[0,1].set_xlabel("$\\log_{10}(\\mu_{d,r})$")
     ax[0,2].set_xlabel("$\\log_{10}(\\mu_{d,a})$")
-    ax[0,3].set_xlabel("$\\log_{10}(\\mu_{d,i})$")
+    ax[0,3].set_xlabel("$\\log_{10}(\\mu_{d,q})$")
     ax[0,4].set_xlabel("$\\log_{10}(\\mu_a)$")
     ax[1,0].set_xlabel("$1/\\mu_r$")
     ax[1,1].set_xlabel("$\\log_{10}(\\mu_a')$")
@@ -619,8 +777,8 @@ def parameter_coalescent_correlations(params):
     ax[1,2].scatter(extended_log10(params.transpose()[9]), m)
     ax[1,3].scatter(extended_log10(mu_b), m)
 
-    ax[0,0].set_ylabel("$m_i$")
-    ax[1,0].set_ylabel("$m_i$")
+    ax[0,0].set_ylabel("$m_q$")
+    ax[1,0].set_ylabel("$m_q$")
 
     _ = ax[0,1].set_xticks([-4,-2, -1], ["$-\\infty$",-2, -1])
     _ = ax[0,2].set_xticks([-4,-2, -1], ["$-\\infty$",-2, -1])
@@ -637,7 +795,7 @@ def parameter_coalescent_correlations(params):
     ax[0,0].set_xlabel("$p$")
     ax[0,1].set_xlabel("$\\log_{10}(\\mu_{d,r})$")
     ax[0,2].set_xlabel("$\\log_{10}(\\mu_{d,a})$")
-    ax[0,3].set_xlabel("$\\log_{10}(\\mu_{d,i})$")
+    ax[0,3].set_xlabel("$\\log_{10}(\\mu_{d,q})$")
     ax[0,4].set_xlabel("$\\log_{10}(\\mu_a)$")
     ax[1,0].set_xlabel("$1/\\mu_r$")
     ax[1,1].set_xlabel("$\\log_{10}(\\mu_a')$")

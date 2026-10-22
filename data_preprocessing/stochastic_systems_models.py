@@ -2630,27 +2630,26 @@ def Z(k,j,n):
     return prod
 
 def expected_mutant_num(params, truncation_time, b, n = 200, l =500, N = 1000, mu_c=0):
-    beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params
-    if mu_d_o != 0:
-        mu_b = (mu_d_r+p*mu_r)*(mu_d_y*mu_d_o + mu_d_y*mu_rej+mu_d_o*mu_a)/((mu_d_o+mu_rej)*(mu_r-mu_d_r))
+    if mu_c ==0:
+        beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params
+        if mu_d_o != 0:
+            mu_b = (mu_d_r+p*mu_r)*(mu_d_y*mu_d_o + mu_d_y*mu_rej+mu_d_o*mu_a)/((mu_d_o+mu_rej)*(mu_r-mu_d_r))
 
-    else:
-        mu_b = (mu_d_r+p*mu_r)*mu_d_y/(mu_r-mu_d_r)
+        else:
+            mu_b = (mu_d_r+p*mu_r)*mu_d_y/(mu_r-mu_d_r)
 
-    f_y = 1/(1 + mu_b/(mu_d_r + p*mu_r) + mu_a/(mu_d_o + mu_rej))
-    f_r = f_y*mu_b/(mu_d_r + p*mu_r)
-    
-    if N == 0:
-        N_y = int((beta0 + beta1*l)*f_y)
-        N_r = int((beta0 + beta1*l)*f_r)
-    
-    else:
-        N_y = int(f_y*N)
-        N_r = int(f_r*N)
+        f_y = 1/(1 + mu_b/(mu_d_r + p*mu_r) + mu_a/(mu_d_o + mu_rej))
+        f_r = f_y*mu_b/(mu_d_r + p*mu_r)
+        
+        if N == 0:
+            N_y = int((beta0 + beta1*l)*f_y)
+            N_r = int((beta0 + beta1*l)*f_r)
+        
+        else:
+            N_y = int(f_y*N)
+            N_r = int(f_r*N)
 
-    pi_y = 1/(1 + (1+p)*mu_b*mu_r/(mu_d_r+p*mu_r)**2 + mu_a*mu_rej/(mu_d_o + mu_rej)**2)
-
-    if mu_c==0:
+        pi_y = 1/(1 + (1+p)*mu_b*mu_r/(mu_d_r+p*mu_r)**2 + mu_a*mu_rej/(mu_d_o + mu_rej)**2)
         coal = (pi_y/N_y)**2 * (mu_r + mu_d_r*p)/(mu_r*p + mu_d_r) * 2 * mu_r*N_r
     else:
         coal=mu_c
@@ -2679,7 +2678,7 @@ def expected_mutant_num(params, truncation_time, b, n = 200, l =500, N = 1000, m
         return W - 2*(1-1/n) + sum
     
 
-def expected_SFS(params, truncation_time=2, n = 200, l = 500, N = 1000, mu_c = 0):
+def expected_SFS(params=0, truncation_time=2, n = 200, l = 500, N = 1000, mu_c = 0):
     SFS = np.zeros(n)
     for i in range(1, n+1):
         #print(i)

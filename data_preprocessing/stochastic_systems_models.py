@@ -1407,207 +1407,6 @@ def extended_three_population_SSD_heteroplasmy_dynamics(params, num_iter = 10, l
 
 #############################################################################################################################
 #                                                                                                                           #
-#                                                              PULSING                                                      #
-#                                                             FUNCTIONS                                                     #
-#                                                                                                                           #
-#############################################################################################################################
-
-#@jit(nopython = True)
-def extended_three_population_pulsing_params(params1, params2, pulsing_freq = 1, pulsing_length=0.1, pulsing_stagger = 0, track_every = 0.1, truncation_time = 4, mutation_probability = 0.01, l = 500, N=0, birth_rate = logarithmic_birth, death_rate = constant_death):
-    """
-
-    Args:
-        params: List[float] or array[float] containing the following elements in the following order (as defined in Wolf, Mjeku et al):
-            - beta0 (float, beta0 >= 0)
-            - beta1 (float, beta1 >= 0)
-            - p (float, 0 <= p <= 1)
-            - mu_d (float, mu_d >= 0)
-            - mu_b (float, mu_b >= 0)
-            - mu_r (float, mu_r >= 0)
-            - c (float, c >= 0)):
-    """
-
-    beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params1
-    print(mu_a)
-    #Defining the birth rate to maintain equilibrium
-    if mu_d_o != 0:
-        mu_b = (mu_d_r+p*mu_r)*(mu_d_y*mu_d_o + mu_d_y*mu_rej+mu_d_o*mu_a)/((mu_d_o+mu_rej)*(mu_r-mu_d_r))
-
-    else:
-        mu_b = (mu_d_r+p*mu_r)*mu_d_y/(mu_r-mu_d_r)
-
-    if N !=0:
-        n_init = N
-        l = (N-beta0)/beta1
-
-    else:
-        n_init = int(beta0 + beta1*l)
-    
-    step_matrix = np.array([[-1,0,1,0,-1,0,0,0],
-                           [2,1,-1,-1,0,-1,0,1],
-                           [0,0,0,1,0,0,-1,-1]]).astype(np.float64)
-    
-    #which population does the event act on
-    event_to_population = np.array([0,0,1,1,0,1,2,2])
-    
-    #We only transpose this matrix so that we can easily access the columns later
-    step_matrix = step_matrix.transpose()
-
-    initialisation_denom = mu_b/(mu_d_r + p*mu_r) + 1 + mu_a/(mu_d_o + mu_rej)
-    initial_replicating = n_init * mu_b/((mu_d_r+ p*mu_r)*initialisation_denom)
-    initial_young = n_init/initialisation_denom
-    initial_old = n_init * mu_a/((mu_d_o + mu_rej)*initialisation_denom)
-    n_init = initial_replicating + initial_young + initial_old
-
-    nucleoid_state = np.array([round(initial_replicating), round(initial_young), round(initial_old)]).astype(np.int64)
-
-    current_time =  0
-    replicating_mutants = [[] for _ in range(round(initial_replicating))]
-    young_mutants = [[] for _ in range(round(initial_young))]
-    old_mutants = [[] for _ in range(round(initial_old))]
-
-    f_ys = np.zeros(int(truncation_time//track_every)+1)
-    Ns = np.zeros(int(truncation_time//track_every)+1)
-    mu_turns = np.zeros(int(truncation_time//track_every)+1)
-    
-    f_ys[0] = initial_young/n_init
-    Ns[0] = n_init
-    mu_turns[0] = mu_r*initial_replicating/n_init
-    
-
-    mutant_number = 0
-    while current_time < truncation_time*24*365:
-        #print(mu_a)
-
-        if (current_time-pulsing_stagger*24*365)%(pulsing_freq*24*365) < pulsing_length*24*365:
-            beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params2
-        else:
-            beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params1
-
-        current_replicating = nucleoid_state[0]
-        current_young = nucleoid_state[1]
-        current_old = nucleoid_state[2]
-
-        n = int(np.sum(nucleoid_state))
-        if n == 0:
-            break
-        
-        ##################----------------Generating the time that the next event takes place---------------------######################
-
-        max_propensity = birth_rate(current_young, n, mu_b, c, l, beta0, beta1) + death_rate(current_old, n, mu_d_o, c, l, beta0, beta1) + \
-            death_rate(current_young, n, mu_d_y, c, l, beta0, beta1) + death_rate(current_replicating, n, mu_d_r, c, l, beta0, beta1) + \
-                current_replicating*mu_r + mu_a*current_young + mu_rej*current_old
-        next_event_time = np.random.exponential(1/max_propensity)
-
-        if current_time //(0.25*24*365) < (current_time + next_event_time)//(0.25*24*365):
-            print(current_time/(24*365))
-
-        a = int((current_time/(24*365))//track_every)
-        b = int(((current_time+next_event_time)/(24*365))//track_every)
-
-        for k in range(a,min(b, int(truncation_time//track_every))): 
-            f_ys[k+1] = current_young/n
-            Ns[k+1] = n
-            mu_turns[k+1] = mu_r*current_replicating/n
-            
-        current_time += next_event_time
-
-        ##################-------------------------Generating what kind of event this is---------------------------#####################
-
-        p_birth = birth_rate(current_young,n,mu_b,c,l,beta0, beta1)/max_propensity
-        p_rep_death = death_rate(current_replicating,n,mu_d_r,c,l,beta0, beta1)/max_propensity
-        p_young_death = death_rate(current_young,n,mu_d_y,c,l,beta0, beta1)/max_propensity
-        p_old_death = death_rate(current_old,n,mu_d_o,c,l,beta0, beta1)/max_propensity
-        p_double_truebirth = p*current_replicating*mu_r/max_propensity
-        p_single_truebirth = (1-p)*current_replicating*mu_r/max_propensity
-        p_ageing = mu_a*current_young/max_propensity
-        p_rej = mu_rej*current_old/max_propensity
-
-        probability_vector = np.array([p_double_truebirth, p_single_truebirth, p_birth, p_ageing, p_rep_death, p_young_death, p_old_death, p_rej])
-        r2 = np.random.uniform(0,1)
-        event_index = np.searchsorted(np.cumsum(probability_vector), r2)
-
-        #Picking a population which this event acts on
-        molecule_index = int(np.random.uniform(0,1)*nucleoid_state[event_to_population[event_index]])
-
-        #Updating the nucleoid state based on which event occured
-        nucleoid_state += step_matrix[event_index].astype(np.int64).flatten()
-
-        #tracking the SFS
-        #non preferential rep
-        if event_index == 0: 
-            mut = np.random.binomial(1,mutation_probability)
-
-            young_mutants.append(replicating_mutants[molecule_index]*1)
-            young_mutants.append(replicating_mutants[molecule_index]*1)
-            replicating_mutants.pop(molecule_index)
-            if mut:
-                young_mutants[-1].append(mutant_number)
-                mutant_number += 1
-        
-        #preferential rep
-        elif event_index == 1:
-            mut = np.random.binomial(1,mutation_probability)
-            young_mutants.append(replicating_mutants[molecule_index]*1)
-            if mut:
-                k = np.random.binomial(1, 0.5)
-                if k:
-                    young_mutants[-1].append(mutant_number)
-                else:
-                    replicating_mutants[molecule_index].append(mutant_number)
-                mutant_number += 1
-        
-        #birth
-        elif event_index == 2:
-            replicating_mutants.append(young_mutants[molecule_index])
-            young_mutants.pop(molecule_index)
-
-        #ageing
-        elif event_index == 3:
-            old_mutants.append(young_mutants[molecule_index])
-            young_mutants.pop(molecule_index)
-
-        #replicating death
-        elif event_index == 4:
-            replicating_mutants.pop(molecule_index)
-
-        #young death
-        elif event_index == 5:
-            young_mutants.pop(molecule_index)
-
-        #old death
-        elif event_index == 6:
-            old_mutants.pop(molecule_index)
-
-        #rejuvination
-        else:
-            young_mutants.append(old_mutants[molecule_index])
-            old_mutants.pop(molecule_index)
-
-    
-    #make this output mutation heteroplasmy time evolution. This will give me a sense of the dynamics
-    #and whether they are correct. If it is correct, the number should behave as a simple random walk.
-    #(ignoring the times each step time takes)
-    cSFS = np.zeros(mutant_number)
-    n = int(np.sum(nucleoid_state))
-    n = nucleoid_state[0] + nucleoid_state[1]
-    for i in range(mutant_number):
-        mutant_counter = 0
-        for replicating_mutant in replicating_mutants:
-            mutant_counter += (i in replicating_mutant)
-        for young_mutant in young_mutants:
-            mutant_counter += (i in young_mutant)
-        # for old_mutant in old_mutants:
-        #     mutant_counter += (i in old_mutant)
-
-        cSFS[i] = mutant_counter/n
-        
-    return cSFS[cSFS != 0], replicating_mutants, young_mutants, old_mutants, f_ys, Ns, mu_turns
-
-
-
-#############################################################################################################################
-#                                                                                                                           #
 #                                                              SUMMARY                                                      #
 #                                                             STATISTICS                                                    #
 #                                                                                                                           #
@@ -2686,4 +2485,228 @@ def expected_SFS(params=0, truncation_time=2, n = 200, l = 500, N = 1000, mu_c =
     
     return SFS/np.sum(SFS)
 
+#############################################################################################################################
+#                                                                                                                           #
+#                                                          SUBPOPULATION                                                    #
+#                                                           BOTTLENECKS                                                     #
+#                                                                                                                           #
+#############################################################################################################################
+
+def extended_three_population_pulsing_forward_coalescent(params1, params2, pulsing_freq = 1, pulsing_length=0.1, pulsing_stagger = 0, track_every = 0.1, truncation_time = 4, mutation_probability = 0.01, l = 500, N=0, birth_rate = logarithmic_birth, death_rate = constant_death, altered_mu_b = False):
+    """
+
+    Args:
+        params: List[float] or array[float] containing the following elements in the following order (as defined in Wolf, Mjeku et al):
+            - beta0 (float, beta0 >= 0)
+            - beta1 (float, beta1 >= 0)
+            - p (float, 0 <= p <= 1)
+            - mu_d (float, mu_d >= 0)
+            - mu_b (float, mu_b >= 0)
+            - mu_r (float, mu_r >= 0)
+            - c (float, c >= 0)):
+    """
+
+    beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params1
+    #Defining the birth rate to maintain equilibrium
+    if mu_d_o != 0:
+        mu_b = (mu_d_r+p*mu_r)*(mu_d_y*mu_d_o + mu_d_y*mu_rej+mu_d_o*mu_a)/((mu_d_o+mu_rej)*(mu_r-mu_d_r))
+
+    else:
+        mu_b = (mu_d_r+p*mu_r)*mu_d_y/(mu_r-mu_d_r)
+
+    initialisation_denom = mu_b/(mu_d_r + p*mu_r) + 1 + mu_a/(mu_d_o + mu_rej)
+    
+    f_r = mu_b/((mu_d_r+ p*mu_r)*initialisation_denom)
+    f_y = 1/initialisation_denom
+
+    if N !=0:
+        n_init = N
+        l = (N-beta0)/beta1
+
+    else:
+        n_init = int(beta0 + beta1*l)
+    
+    step_matrix = np.array([[-1,0,1,0,-1,0,0,0],
+                           [2,1,-1,-1,0,-1,0,1],
+                           [0,0,0,1,0,0,-1,-1]]).astype(np.float64)
+    
+    #which population does the event act on
+    event_to_population = np.array([0,0,1,1,0,1,2,2])
+    
+    #We only transpose this matrix so that we can easily access the columns later
+    step_matrix = step_matrix.transpose()
+
+    initialisation_denom = mu_b/(mu_d_r + p*mu_r) + 1 + mu_a/(mu_d_o + mu_rej)
+    initial_replicating = n_init * mu_b/((mu_d_r+ p*mu_r)*initialisation_denom)
+    initial_young = n_init/initialisation_denom
+    initial_old = n_init * mu_a/((mu_d_o + mu_rej)*initialisation_denom)
+    n_init = initial_replicating + initial_young + initial_old
+
+    nucleoid_state = np.array([round(initial_replicating), round(initial_young), round(initial_old)]).astype(np.int64)
+
+    current_time =  0
+    replicating_mutants = [[] for _ in range(round(initial_replicating))]
+    young_mutants = [[] for _ in range(round(initial_young))]
+    old_mutants = [[] for _ in range(round(initial_old))]
+
+    f_ys = np.zeros(int(truncation_time//track_every)+1)
+    f_os = np.zeros(int(truncation_time//track_every)+1)
+    Ns = np.zeros(int(truncation_time//track_every)+1)
+    mu_turns = np.zeros(int(truncation_time//track_every)+1)
+    
+    f_ys[0] = initial_young/n_init
+    f_os[0] = initial_old/n_init
+    Ns[0] = n_init
+    mu_turns[0] = mu_r*initial_replicating/n_init
+
+    mutant_number = 0
+    while current_time < truncation_time*24*365:
+        #print(mu_a)
+
+        if (current_time-pulsing_stagger*24*365)%(pulsing_freq*24*365) < pulsing_length*24*365:
+            param = params2
+            beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params2
+
+        else:
+            param = params1
+            beta0, beta1, p, mu_d_r, mu_d_y, mu_d_o, mu_a, mu_r, mu_rej, c = params1
+
+        if altered_mu_b:
+
+            if mu_d_o != 0:
+                mu_b = (mu_d_r+p*mu_r)*(mu_d_y*mu_d_o + mu_d_y*mu_rej+mu_d_o*mu_a)/((mu_d_o+mu_rej)*(mu_r-mu_d_r))
+
+            else:
+                mu_b = (mu_d_r+p*mu_r)*mu_d_y/(mu_r-mu_d_r)
+
+        current_replicating = nucleoid_state[0]
+        current_young = nucleoid_state[1]
+        current_old = nucleoid_state[2]
+
+        n = int(np.sum(nucleoid_state))
+        # print("y:")
+        # print(current_young)
+        # print("r:")
+        # print(current_replicating)
+        # print("o:")
+        # print(current_old)
+        # print("birth rate:")
+        # print(birth_rate(current_young, n, mu_b, c, l, beta0, beta1))
+        if n == 0:
+            break
+        
+        ##################----------------Generating the time that the next event takes place---------------------######################
+
+        max_propensity = birth_rate(current_young, current_replicating, mu_b, c, l, f_y, f_r, beta0, beta1, n) + death_rate(current_old, n, mu_d_o, c, l, beta0, beta1) + \
+            death_rate(current_young, n, mu_d_y, c, l, beta0, beta1) + death_rate(current_replicating, n, mu_d_r, c, l, beta0, beta1) + \
+                current_replicating*mu_r + mu_a*current_young + mu_rej*current_old
+        next_event_time = np.random.exponential(1/max_propensity)
+
+        if current_time //(0.25*24*365) < (current_time + next_event_time)//(0.25*24*365):
+            print(f"time: {current_time/(24*365)} years")
+
+
+        a = int((current_time/(24*365))//track_every)
+        b = int(((current_time+next_event_time)/(24*365))//track_every)
+
+        for k in range(a,min(b, int(truncation_time//track_every))): 
+            f_ys[k+1] = current_young/n
+            f_os[k+1] = current_old/n
+            Ns[k+1] = n
+            mu_turns[k+1] = mu_r*current_replicating/n
+            
+        current_time += next_event_time
+
+        ##################-------------------------Generating what kind of event this is---------------------------#####################
+
+        p_birth = birth_rate(current_young, current_replicating, mu_b, c, l, f_y, f_r, beta0, beta1, n)/max_propensity
+        p_rep_death = death_rate(current_replicating,n,mu_d_r,c,l,beta0, beta1)/max_propensity
+        p_young_death = death_rate(current_young,n,mu_d_y,c,l,beta0, beta1)/max_propensity
+        p_old_death = death_rate(current_old,n,mu_d_o,c,l,beta0, beta1)/max_propensity
+        p_double_truebirth = p*current_replicating*mu_r/max_propensity
+        p_single_truebirth = (1-p)*current_replicating*mu_r/max_propensity
+        p_ageing = mu_a*current_young/max_propensity
+        p_rej = mu_rej*current_old/max_propensity
+
+        probability_vector = np.array([p_double_truebirth, p_single_truebirth, p_birth, p_ageing, p_rep_death, p_young_death, p_old_death, p_rej])
+        r2 = np.random.uniform(0,1)
+        event_index = np.searchsorted(np.cumsum(probability_vector), r2)
+
+        #Picking a population which this event acts on
+        molecule_index = int(np.random.uniform(0,1)*nucleoid_state[event_to_population[event_index]])
+
+        #Updating the nucleoid state based on which event occured
+        nucleoid_state += step_matrix[event_index].astype(np.int64).flatten()
+
+        #tracking the SFS
+        #non preferential rep
+        if event_index == 0: 
+            mut = np.random.binomial(1,mutation_probability)
+
+            young_mutants.append(replicating_mutants[molecule_index]*1)
+            young_mutants.append(replicating_mutants[molecule_index]*1)
+            replicating_mutants.pop(molecule_index)
+            if mut:
+                young_mutants[-1].append(mutant_number)
+                mutant_number += 1
+        
+        #preferential rep
+        elif event_index == 1:
+            mut = np.random.binomial(1,mutation_probability)
+            young_mutants.append(replicating_mutants[molecule_index]*1)
+            if mut:
+                k = np.random.binomial(1, 0.5)
+                if k:
+                    young_mutants[-1].append(mutant_number)
+                else:
+                    replicating_mutants[molecule_index].append(mutant_number)
+                mutant_number += 1
+        
+        #birth
+        elif event_index == 2:
+            replicating_mutants.append(young_mutants[molecule_index])
+            young_mutants.pop(molecule_index)
+
+        #ageing
+        elif event_index == 3:
+            old_mutants.append(young_mutants[molecule_index])
+            young_mutants.pop(molecule_index)
+
+        #replicating death
+        elif event_index == 4:
+            replicating_mutants.pop(molecule_index)
+
+        #young death
+        elif event_index == 5:
+            young_mutants.pop(molecule_index)
+
+        #old death
+        elif event_index == 6:
+            old_mutants.pop(molecule_index)
+
+        #rejuvination
+        else:
+            young_mutants.append(old_mutants[molecule_index])
+            old_mutants.pop(molecule_index)
+
+    
+    #make this output mutation heteroplasmy time evolution. This will give me a sense of the dynamics
+    #and whether they are correct. If it is correct, the number should behave as a simple random walk.
+    #(ignoring the times each step time takes)
+    cSFS = np.zeros(mutant_number)
+    n = int(np.sum(nucleoid_state))
+    n = nucleoid_state[0] + nucleoid_state[1]
+    for i in range(mutant_number):
+        mutant_counter = 0
+        for replicating_mutant in replicating_mutants:
+            mutant_counter += (i in replicating_mutant)
+        for young_mutant in young_mutants:
+            mutant_counter += (i in young_mutant)
+        # for old_mutant in old_mutants:
+        #     mutant_counter += (i in old_mutant)
+
+        cSFS[i] = mutant_counter/n
+
+        
+    return cSFS[cSFS != 0], replicating_mutants, young_mutants, old_mutants, f_ys, f_os, Ns, mu_turns
 

@@ -1103,7 +1103,7 @@ def extended_logarithmic_three_population_pulse(params, verbose = False, full_tr
 #############################################################################################################################
 
 @jit(nopython = True)
-def preferential_death(e, n, mu, c, l, beta0 = 172, beta1 = 1.38, pref_deg_fac = 1.02):
+def preferential_death(e, n, mu, c, l, beta0 = 172, beta1 = 1.38, pref_deg_fac = 1):
     return mu*(e-n) + pref_deg_fac*mu*n
 
 @jit(nopython=True)
@@ -1111,8 +1111,7 @@ def SSD_birth(n_y,m_y,n_r, m_r, mu,c,l, f_yr, delta,beta0=172, beta1=1.38, n = 0
     n_opt = (beta0 + beta1*l)*f_yr
     return (n_y+m_y)*np.maximum(0, mu + c*(n_opt - (n_y+n_r) - delta*(m_y + m_r)))
 
-#@jit(nopython = True)
-def extended_three_population_SSD_fixation_prob(params, num_iter = 100, l = 500, N=0, delta = 1, birth_rate = SSD_birth, death_rate = preferential_death, pref_deg_factor = 1):
+def extended_three_population_SSD_fixation_prob(params, num_iter = 100, l = 500, N=0, delta = 1, birth_rate = SSD_birth, death_rate = preferential_death, pref_deg_factor = 1, initial_active_num = 0, initial_inactive_num=0, mode = "equilibrium"):
     """
 
     Args:
@@ -1161,9 +1160,11 @@ def extended_three_population_SSD_fixation_prob(params, num_iter = 100, l = 500,
     fixed_arr = np.zeros(num_iter)
     final_states = np.zeros((num_iter, 3))
     for i in range(num_iter):
-        print(i)
         #initialise with one mutated molecule in the young population
-        nucleoid_state = np.array([round(initial_replicating), round(initial_young)-1, round(initial_old), 0, 1, 0]).astype(np.int64)
+        if mode == "equilibrium":
+            nucleoid_state = np.array([round(initial_replicating), round(initial_young)-initial_active_num, round(initial_old)-initial_inactive_num, 0, initial_active_num, initial_inactive_num]).astype(np.int64)
+        elif mode == "non equilibrium":
+            nucleoid_state = np.array([round(initial_replicating), round(initial_young), round(initial_old), 0, initial_active_num, initial_inactive_num]).astype(np.int64)
 
         current_replicating = nucleoid_state[0]
         current_young = nucleoid_state[1]
@@ -1173,12 +1174,6 @@ def extended_three_population_SSD_fixation_prob(params, num_iter = 100, l = 500,
         current_mutated_old = nucleoid_state[5]
         current_unmutated = current_replicating + current_young + current_old
         current_mutated= current_mutated_replicating + current_mutated_young + current_mutated_old
-
-
-        #print(current_mutated_replicating)
-        #print(current_mutated_young)
-        #print(current_mutated_old)
-
 
         current_time =  0
         fixed = False
@@ -1191,12 +1186,22 @@ def extended_three_population_SSD_fixation_prob(params, num_iter = 100, l = 500,
             if n == 0:
                 print("here")
                 break
+
+            #hardcode that there is always at least one replicative molecule
+            if current_young+current_mutated_young+current_replicating+current_mutated_replicating == 1:
+                young_death_prop = 0
+                replicating_death_prop = 0
+                ageing_prop = 0
+            else:
+                young_death_prop = death_rate(current_young + current_mutated_young, n, mu_d_y, c, l, beta0, beta1, pref_deg_factor)
+                replicating_death_prop = death_rate(current_replicating + current_mutated_replicating, n, mu_d_r, c, l, beta0, beta1, pref_deg_factor)
+                ageing_prop = mu_a*(current_young + current_mutated_young)
             
             ##################----------------Generating the time that the next event takes place---------------------######################
 
-            max_propensity = birth_rate(current_young, current_mutated_young, current_replicating, current_mutated_replicating, mu_b, c, l, f_yr, delta, beta0, beta1, n = current_unmutated,m = current_mutated) + death_rate(current_old+current_mutated_old, current_mutated_old, mu_d_o, c, l, beta0, beta1, pref_deg_factor) + \
-                death_rate(current_young + current_mutated_young, current_mutated_young, mu_d_y, c, l, beta0, beta1, pref_deg_factor) + death_rate(current_replicating + current_mutated_replicating, current_mutated_replicating, mu_d_r, c, l, beta0, beta1, pref_deg_factor) + \
-                    (current_replicating + current_mutated_replicating)*mu_r + mu_a*(current_young + current_mutated_young) + mu_rej*(current_old + current_mutated_old)
+            max_propensity = birth_rate(current_young, current_mutated_young, current_replicating, current_mutated_replicating, mu_b, c, l, f_yr, delta, beta0, beta1, n = current_unmutated,m = current_mutated) + death_rate(current_old+current_mutated_old, n, mu_d_o, c, l, beta0, beta1, pref_deg_factor) + \
+                young_death_prop + replicating_death_prop + \
+                    (current_replicating + current_mutated_replicating)*mu_r + ageing_prop + mu_rej*(current_old + current_mutated_old)
             next_event_time = np.random.exponential(1/max_propensity)
 
             # if current_time //(0.25*24*365) < (current_time + next_event_time)//(0.25*24*365):
@@ -1207,12 +1212,12 @@ def extended_three_population_SSD_fixation_prob(params, num_iter = 100, l = 500,
             ##################-------------------------Generating what kind of event this is---------------------------#####################
 
             p_birth = birth_rate(current_young, current_mutated_young, current_replicating, current_mutated_replicating, mu_b, c, l, f_yr, delta, beta0, beta1, n = current_unmutated,m = current_mutated)/max_propensity
-            p_rep_death = death_rate(current_replicating+current_mutated_replicating,current_mutated_replicating,mu_d_r,c,l,beta0, beta1, pref_deg_factor)/max_propensity
-            p_young_death = death_rate(current_young+current_mutated_young,current_mutated_young,mu_d_y,c,l,beta0, beta1, pref_deg_factor)/max_propensity
-            p_old_death = death_rate(current_old+current_mutated_old,current_mutated_old,mu_d_o,c,l,beta0, beta1, pref_deg_factor)/max_propensity
+            p_rep_death = replicating_death_prop/max_propensity
+            p_young_death = young_death_prop/max_propensity
+            p_old_death = death_rate(current_old+current_mutated_old,n,mu_d_o,c,l,beta0, beta1, pref_deg_factor)/max_propensity
             p_double_truebirth = p*(current_replicating+current_mutated_replicating)*mu_r/max_propensity
             p_single_truebirth = (1-p)*(current_replicating+current_mutated_replicating)*mu_r/max_propensity
-            p_ageing = mu_a*(current_young + current_mutated_young)/max_propensity
+            p_ageing = ageing_prop/max_propensity
             p_rej = mu_rej*(current_old + current_mutated_old)/max_propensity
 
             rep_mut_frac = current_mutated_replicating/max((current_replicating+current_mutated_replicating),1)
@@ -1259,7 +1264,7 @@ def extended_three_population_SSD_fixation_prob(params, num_iter = 100, l = 500,
 
     return fixed_arr, final_states
 
-def extended_three_population_SSD_heteroplasmy_dynamics(params, num_iter = 10, l = 500, N=0, delta = 1, birth_rate = SSD_birth, death_rate = preferential_death, pref_deg_factor = 1):
+def extended_three_population_SSD_heteroplasmy_dynamics(params, num_iter = 100, l = 500, N=0, delta = 1, birth_rate = SSD_birth, death_rate = preferential_death, pref_deg_factor = 1):
     """
     Args:
         params: List[float] or array[float] containing the following elements in the following order (as defined in Wolf, Mjeku et al):
@@ -1306,9 +1311,10 @@ def extended_three_population_SSD_heteroplasmy_dynamics(params, num_iter = 10, l
     n_init = initial_replicating + initial_young + initial_old
     f_yr = 1-mu_a/((mu_d_o + mu_rej)*initialisation_denom)
 
-    het_arr = np.zeros((num_iter, 50))
+    het_arr = np.zeros((num_iter, 51))
     for i in range(num_iter):
-        print(i)
+        het_arr[i,0] = 0.5
+        #print(i)
         #initialise with one mutated molecule in the young population
         nucleoid_state = np.array([round(initial_replicating*n_init/(1+delta)), round(initial_young*n_init/(1+delta)), round(initial_old*n_init/(1+delta)), 
                                    round(initial_replicating*n_init/(1+delta)), round(initial_young*n_init/(1+delta)), round(initial_old*n_init/(1+delta))]).astype(np.int64)
@@ -1337,16 +1343,27 @@ def extended_three_population_SSD_heteroplasmy_dynamics(params, num_iter = 10, l
             #print(current_young+current_mutated_young)
             if n == 0:
                 break
+
+            #hardcode that there is always at least one replicative molecule
+            if current_young+current_mutated_young+current_replicating+current_mutated_replicating == 1:
+                young_death_prop = 0
+                replicating_death_prop = 0
+                ageing_prop = 0
+            else:
+                young_death_prop = death_rate(current_young + current_mutated_young, n, mu_d_y, c, l, beta0, beta1, pref_deg_factor)
+                replicating_death_prop = death_rate(current_replicating + current_mutated_replicating, n, mu_d_r, c, l, beta0, beta1, pref_deg_factor)
+                ageing_prop = mu_a*(current_young + current_mutated_young)
             
             ##################----------------Generating the time that the next event takes place---------------------######################
 
-            max_propensity = birth_rate(current_young, current_mutated_young, current_replicating, current_mutated_replicating, mu_b, c, l, f_yr, delta, beta0, beta1, n = current_unmutated,m = current_mutated) + death_rate(current_old+current_mutated_old, current_mutated_old, mu_d_o, c, l, beta0, beta1, pref_deg_factor) + \
-                death_rate(current_young + current_mutated_young, current_mutated_young, mu_d_y, c, l, beta0, beta1, pref_deg_factor) + death_rate(current_replicating + current_mutated_replicating, current_mutated_replicating, mu_d_r, c, l, beta0, beta1, pref_deg_factor) + \
-                    (current_replicating + current_mutated_replicating)*mu_r + mu_a*(current_young + current_mutated_young) + mu_rej*(current_old + current_mutated_old)
+            max_propensity = birth_rate(current_young, current_mutated_young, current_replicating, current_mutated_replicating, mu_b, c, l, f_yr, delta, beta0, beta1, n = current_unmutated,m = current_mutated) + death_rate(current_old+current_mutated_old, n, mu_d_o, c, l, beta0, beta1, pref_deg_factor) + \
+                young_death_prop + replicating_death_prop + \
+                    (current_replicating + current_mutated_replicating)*mu_r + ageing_prop + mu_rej*(current_old + current_mutated_old)
+            
             next_event_time = np.random.exponential(1/max_propensity)
 
             if current_time //(24*180/50) < (current_time + next_event_time)//(24*180/50):
-                j = int(current_time//(24*180/50))
+                j = int(1+current_time//(24*180/50))
                 het_arr[i,j] = current_mutated/(current_unmutated+current_mutated)
                 
             current_time += next_event_time
@@ -1354,12 +1371,12 @@ def extended_three_population_SSD_heteroplasmy_dynamics(params, num_iter = 10, l
             ##################-------------------------Generating what kind of event this is---------------------------#####################
 
             p_birth = birth_rate(current_young, current_mutated_young, current_replicating, current_mutated_replicating, mu_b, c, l, f_yr, delta, beta0, beta1, n = current_unmutated,m = current_mutated)/max_propensity
-            p_rep_death = death_rate(current_replicating+current_mutated_replicating,current_mutated_replicating,mu_d_r,c,l,beta0, beta1, pref_deg_factor)/max_propensity
-            p_young_death = death_rate(current_young+current_mutated_young,current_mutated_young,mu_d_y,c,l,beta0, beta1, pref_deg_factor)/max_propensity
-            p_old_death = death_rate(current_old+current_mutated_old,current_mutated_old,mu_d_o,c,l,beta0, beta1, pref_deg_factor)/max_propensity
+            p_rep_death = replicating_death_prop/max_propensity
+            p_young_death = young_death_prop/max_propensity
+            p_old_death = death_rate(current_old+current_mutated_old,n,mu_d_o,c,l,beta0, beta1, pref_deg_factor)/max_propensity
             p_double_truebirth = p*(current_replicating+current_mutated_replicating)*mu_r/max_propensity
             p_single_truebirth = (1-p)*(current_replicating+current_mutated_replicating)*mu_r/max_propensity
-            p_ageing = mu_a*(current_young + current_mutated_young)/max_propensity
+            p_ageing = ageing_prop/max_propensity
             p_rej = mu_rej*(current_old + current_mutated_old)/max_propensity
 
             rep_mut_frac = current_mutated_replicating/max((current_replicating+current_mutated_replicating),1)
